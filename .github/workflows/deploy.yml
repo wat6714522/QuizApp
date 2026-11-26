@@ -23,9 +23,9 @@ jobs:
       matrix:
         include:
           - name: backend
-            context: QuizApp/Backend
+            context: Backend
           - name: frontend
-            context: QuizApp/Frontend
+            context: Frontend
     steps:
       - uses: actions/checkout@v4
 
@@ -51,7 +51,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
       - name: Scan for critical vulnerabilities
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           image-ref: ${{ env.DOCKERHUB_USER }}/quizdeck:${{ matrix.name }}-${{ env.TAG }}
           severity: CRITICAL
