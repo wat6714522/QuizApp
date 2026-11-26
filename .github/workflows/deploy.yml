@@ -14,7 +14,7 @@ concurrency:
 
 env:
   DOCKERHUB_USER: ${{ vars.DOCKERHUB_USER }}
-  API_URL: https://api.pasvapotiphan.link
+  API_URL: https://api.pasavapotiphan.link
 
 jobs:
   build:
