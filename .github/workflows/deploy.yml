@@ -97,6 +97,6 @@ jobs:
       - name: Smoke test
         run: |
           sleep 15
-          curl -fsS -o /dev/null https://pasvapotiphan.link
-          code=$(curl -s -o /dev/null -w "%{http_code}" https://api.pasvapotiphan.link/api/me)
+          curl -fsS -o /dev/null https://pasavapotiphan.link
+          code=$(curl -s -o /dev/null -w "%{http_code}" https://api.pasavapotiphan.link/api/me)
           [ "$code" = "200" ] || [ "$code" = "401" ]
