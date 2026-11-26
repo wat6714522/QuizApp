@@ -76,7 +76,7 @@ export function Workspace({
   children,
 }: {
   session: ReturnType<typeof useSession>;
-  active: "dashboard" | "quizzes" | "courses" | "attempts";
+  active: "dashboard" | "courses" | "quizzes" | "attempts" | "invitations";
   title: string;
   description?: string;
   children: ReactNode;
@@ -121,18 +121,26 @@ export function Workspace({
 
   const links = [
     { key: "dashboard", label: "Overview", path: "/web-page/dashboard" },
+    { key: "courses", label: "My Courses", path: "/web-page/courses" },
     {
       key: "quizzes",
       label: user.role === "instructor" ? "My Quizzes" : "Available Quizzes",
       path: "/web-page/quizzes",
     },
-    { key: "courses", label: "My Courses", path: "/web-page/courses" },
     {
       key: "attempts",
       label: user.role === "instructor" ? "Student Results" : "My Attempts",
       path: "/web-page/attempts",
     },
   ];
+
+  if (user.role === "instructor" && user.canInviteInstructors === true) {
+    links.push({
+      key: "invitations",
+      label: "Invite Instructor",
+      path: "/web-page/invitations",
+    });
+  }
 
   return (
     <div className="min-h-screen bg-[#f8f7f5] text-stone-900 lg:grid lg:grid-cols-[240px_1fr]">

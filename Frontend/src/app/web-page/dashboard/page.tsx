@@ -22,7 +22,6 @@ import {
   primary,
   secondary,
 } from "../_components/workspace";
-import { InviteInstructor } from "../_components/invite-instructor";
 
 export default function DashboardPage() {
   const session = useSession();
@@ -130,7 +129,6 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
-          {session.user?.isAdmin && <InviteInstructor />}
           <section className="mt-10">
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className="text-xl font-semibold">

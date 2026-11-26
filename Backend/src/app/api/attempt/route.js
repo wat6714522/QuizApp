@@ -4,20 +4,14 @@ import { requireAuth, requireRole } from "@/app/lib/authentication/session";
 import { errorResponse, printExceptionLog, successResponse } from "@/app/lib/utils";
 import { serializeAttempt } from "@/app/lib/api";
 import { isEnrolled } from "@/app/lib/courses";
-import {
-  attemptSchema,
-  listAttemptsQuerySchema,
-  startAttemptSchema,
-} from "@/app/lib/validation/attempt";
+import { attemptSchema, listAttemptsQuerySchema, startAttemptSchema } from "@/app/lib/validation/attempt";
 
 export async function GET(request) {
   try {
     const { session, response } = await requireAuth();
     if (response) return response;
 
-    const parsed = listAttemptsQuerySchema.safeParse(
-      Object.fromEntries(request.nextUrl.searchParams),
-    );
+    const parsed = listAttemptsQuerySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams));
 
     if (!parsed.success) return errorResponse("Invalid quizId", 400);
     const { quizId } = parsed.data;
@@ -31,9 +25,7 @@ export async function GET(request) {
       filter.studentId = userId; // students only ever see their own
       if (quizId) filter.quizId = new ObjectId(quizId);
     } else if (quizId) {
-      const quiz = await db
-        .collection("quizzes")
-        .findOne({ _id: new ObjectId(quizId) }, { projection: { ownerId: 1 } });
+      const quiz = await db.collection("quizzes").findOne({ _id: new ObjectId(quizId) }, { projection: { ownerId: 1 } });
 
       if (!quiz) return errorResponse("Quiz not found", 404);
       if (!quiz.ownerId.equals(userId)) return errorResponse("You do not own this quiz", 403);
@@ -108,17 +100,12 @@ export async function POST(request) {
     const db = client.db(process.env.DB_NAME);
 
     const quiz = await db.collection("quizzes").findOne({ _id: quizId });
-    if (!quiz) return errorResponse("Quiz not found", 404);
 
-    if (quiz.courseCode && !(await isEnrolled(db, session.userId, quiz.courseCode))) {
-      return errorResponse("Quiz not found", 404);
-    }
-
+    // Only students enrolled in the quiz's course can start it.
+    if (!quiz || !(await isEnrolled(db, session, quiz.courseId))) return errorResponse("Quiz not found", 404);
     if (quiz.status !== "published") return errorResponse("This quiz is not published", 409);
-    if (quiz.opensAt && now < new Date(quiz.opensAt))
-      return errorResponse("This quiz is not open yet", 409);
-    if (quiz.closesAt && now > new Date(quiz.closesAt))
-      return errorResponse("This quiz is already closed", 409);
+    if (quiz.opensAt && now < new Date(quiz.opensAt)) return errorResponse("This quiz is not open yet", 409);
+    if (quiz.closesAt && now > new Date(quiz.closesAt)) return errorResponse("This quiz is already closed", 409);
 
     const questions = await db
       .collection("questions")
@@ -144,8 +131,7 @@ export async function POST(request) {
       await db.collection("attempts").insertOne(doc); // adds doc._id
     } catch (err) {
       // needs the partial unique index on { quizId, studentId } where status is in_progress
-      if (err.code === 11000)
-        return errorResponse("You already have an attempt in progress on this quiz", 409);
+      if (err.code === 11000) return errorResponse("You already have an attempt in progress on this quiz", 409);
       throw err;
     }
 

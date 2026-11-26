@@ -2,9 +2,9 @@ import { ObjectId } from "mongodb";
 import { getClientPromise } from "@/app/lib/mongodb";
 import { requireAuth, requireRole } from "@/app/lib/authentication/session";
 import { serializeQuiz } from "@/app/lib/api";
-import { enrolledCourseCodes, ownsCourse } from "@/app/lib/courses";
+import { enrolledCourseIds, loadOwnedCourse } from "@/app/lib/courses";
 import { errorResponse, printExceptionLog, successResponse } from "@/app/lib/utils";
-import { quizCreateSchema, QUIZ_STATUSES } from "@/app/lib/validation/quiz";
+import { QUIZ_STATUSES, quizCreateSchema } from "@/app/lib/validation/quiz";
 
 export async function GET(request) {
   try {
@@ -18,17 +18,8 @@ export async function GET(request) {
     const client = await getClientPromise();
     const db = client.db(process.env.DB_NAME);
 
-    // Instructors see their own quizzes. Students see published quizzes that are
-    // open to everyone (courseCode null/missing) or assigned to a course they're in.
-    let filter;
-
-    if (session.role === "instructor") {
-      filter = { ownerId: new ObjectId(session.userId) };
-    } else {
-      const codes = await enrolledCourseCodes(db, session.userId);
-
-      filter = { status: "published", courseCode: { $in: [null, ...codes] } };
-    }
+    // Instructors see their own quizzes; students see published quizzes in their courses.
+    const filter = session.role === "instructor" ? { ownerId: new ObjectId(session.userId) } : { status: "published", courseId: { $in: await enrolledCourseIds(db, session) } };
 
     const subject = searchParams.get("subject");
     if (subject) filter.subject = subject;
@@ -76,9 +67,10 @@ export async function POST(request) {
     const client = await getClientPromise();
     const db = client.db(process.env.DB_NAME);
 
-    if (data.courseCode && !(await ownsCourse(db, session.userId, data.courseCode))) {
-      return errorResponse("You can only assign quizzes to your own courses", 403);
-    }
+    // The quiz can only go into a course this instructor owns.
+    const courseId = new ObjectId(data.courseId);
+    const { response: badCourse } = await loadOwnedCourse(db, courseId, session);
+    if (badCourse) return badCourse;
 
     const now = new Date();
 
@@ -86,8 +78,8 @@ export async function POST(request) {
       title: data.title,
       description: data.description,
       subject: data.subject,
-      courseCode: data.courseCode, // null = all students
       ownerId: new ObjectId(session.userId), // from the session, never the body
+      courseId,
       timeLimitMinutes: data.timeLimitMinutes,
       opensAt: data.opensAt ?? null,
       closesAt: data.closesAt ?? null,

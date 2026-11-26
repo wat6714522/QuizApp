@@ -1,9 +1,8 @@
 import { z } from "zod";
 import { ObjectId } from "mongodb";
+import { objectIdString } from "@/app/lib/validation/common";
 
 const objectIdField = z.instanceof(ObjectId);
-
-export const objectIdString = z.string().regex(/^[a-f\d]{24}$/i, "Invalid id");
 
 export const ATTEMPT_STATUS = z.enum(["in_progress", "submitted", "graded"]);
 
@@ -51,8 +50,7 @@ export const attemptSchema = z
     }
 
     if (a.score !== null && a.score > a.maxScore) issue("score", "score cannot exceed maxScore");
-    if (a.submittedAt && a.submittedAt < a.startedAt)
-      issue("submittedAt", "submittedAt is before startedAt");
+    if (a.submittedAt && a.submittedAt < a.startedAt) issue("submittedAt", "submittedAt is before startedAt");
   });
 
 export const startAttemptSchema = z

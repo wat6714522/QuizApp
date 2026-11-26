@@ -10,17 +10,20 @@ export async function GET() {
     const { session, response } = await requireAuth();
     if (response) return response;
 
-    const userId = new ObjectId(session.userId);
-
-    // Instructors see courses they own; students see courses they're enrolled in.
-    const filter = session.role === "instructor" ? { ownerId: userId } : { studentIds: userId };
-
     const client = await getClientPromise();
     const db = client.db(process.env.DB_NAME);
+    const userId = new ObjectId(session.userId);
+
+    // Instructors see the courses they own; students see the courses they're enrolled in.
+    const filter = session.role === "instructor" ? { ownerId: userId } : { studentIds: userId };
 
     const courses = await db.collection("courses").find(filter).sort({ code: 1 }).toArray();
 
-    return successResponse(courses.map(serializeCourse), 200);
+    // Wrapped so map's index argument isn't passed as `students`.
+    return successResponse(
+      courses.map((c) => serializeCourse(c)),
+      200,
+    );
   } catch (err) {
     printExceptionLog("GET /api/course", err);
 
@@ -43,33 +46,34 @@ export async function POST(request) {
 
     const parsed = courseCreateSchema.safeParse(body);
     if (!parsed.success) return errorResponse(parsed.error.issues[0].message, 400);
+    const data = parsed.data;
+
+    const client = await getClientPromise();
+    const db = client.db(process.env.DB_NAME);
+    const courses = db.collection("courses");
 
     const now = new Date();
 
     const course = {
-      code: parsed.data.code,
-      name: parsed.data.name,
-      ownerId: new ObjectId(session.userId),
+      code: data.code,
+      name: data.name,
+      ownerId: new ObjectId(session.userId), // from the session, never the body
       studentIds: [],
       createdAt: now,
       updatedAt: now,
     };
 
-    const client = await getClientPromise();
-    const db = client.db(process.env.DB_NAME);
+    const taken = await courses.findOne({ ownerId: course.ownerId, code: course.code }, { projection: { _id: 1 } });
+    if (taken) return errorResponse(`You already have a course with code ${course.code}`, 409);
 
     try {
-      await db.collection("courses").insertOne(course); // adds course._id
+      await courses.insertOne(course); // adds course._id
     } catch (err) {
-      // needs the unique index on courses.code
-      if (err.code === 11000) {
-        return errorResponse(`Course code ${course.code} already exists`, 409);
-      }
-
+      if (err.code === 11000) return errorResponse(`You already have a course with code ${course.code}`, 409);
       throw err;
     }
 
-    return successResponse(serializeCourse(course), 201);
+    return successResponse(serializeCourse(course, []), 201);
   } catch (err) {
     printExceptionLog("POST /api/course", err);
 

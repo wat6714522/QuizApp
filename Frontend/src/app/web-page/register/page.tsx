@@ -1,23 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { useState, type FormEvent } from "react";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000").replace(/\/$/, "");
 
-// useSearchParams needs a Suspense boundary, or `next build` fails.
 export default function RegisterPage() {
-  return (
-    <Suspense>
-      <RegisterForm />
-    </Suspense>
-  );
-}
-
-function RegisterForm() {
   const router = useRouter();
-  const inviteToken = useSearchParams().get("invite") ?? "";
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -56,7 +46,6 @@ function RegisterForm() {
           name: name.trim(),
           email: email.trim(),
           password,
-          ...(inviteToken && { inviteToken }),
         }),
       });
 
@@ -66,15 +55,13 @@ function RegisterForm() {
         throw new Error(data?.error?.message || "Unable to create your account.");
       }
 
-      const role = data?.user?.role;
-
-      if (typeof data?.user?.id !== "string" || !["student", "instructor"].includes(role)) {
+      if (typeof data?.user?.id !== "string" || data?.user?.role !== "student") {
         throw new Error("Unexpected response. Please try signing in.");
       }
 
       setPassword("");
       setConfirmPassword("");
-      setSuccess(`Account created. You are now signed in as ${role}.`);
+      setSuccess("Account created. You are now signed in as a student.");
       router.replace("/web-page/dashboard");
     } catch (err) {
       setError(
@@ -126,9 +113,7 @@ function RegisterForm() {
           </h1>
 
           <p className="mx-auto mt-8 max-w-xs text-center text-sm leading-7 text-stone-400">
-            {inviteToken
-              ? "Create quizzes, publish them to your class, and review student results."
-              : "Join your classroom, take quizzes, and track your learning progress."}
+            Join your classroom, take quizzes, and track your learning progress.
           </p>
         </section>
 
@@ -161,17 +146,8 @@ function RegisterForm() {
               Create Account
             </h2>
             <p className="mb-7 mt-3 text-sm text-stone-500">
-              {inviteToken
-                ? "Create your instructor account."
-                : "Create your student account to get started."}
+              Create your student account to get started.
             </p>
-
-            {inviteToken && (
-              <p className="mb-5 rounded-2xl bg-orange-50 p-3 text-sm text-orange-800">
-                You&apos;ve been invited as an instructor. Register with the email address the
-                invitation was sent to.
-              </p>
-            )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>

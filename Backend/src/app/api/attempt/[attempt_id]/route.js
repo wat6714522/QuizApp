@@ -3,6 +3,7 @@ import { getClientPromise } from "@/app/lib/mongodb";
 import { requireAuth } from "@/app/lib/authentication/session";
 import { parseObjectId } from "@/app/lib/params";
 import { serializeAttempt } from "@/app/lib/api";
+import { isEnrolled } from "@/app/lib/courses";
 import { attemptSchema, updateAttemptSchema } from "@/app/lib/validation/attempt";
 import { gradeAttempt, isPastDeadline } from "@/app/lib/grading";
 import { errorResponse, printExceptionLog, successResponse } from "@/app/lib/utils";
@@ -84,22 +85,20 @@ export async function PUT(request, { params }) {
 
     const { attempt, quiz, isStudent, response: denied } = await loadForUser(db, id, session);
     if (denied) return denied;
-    if (!isStudent)
-      return errorResponse("Only the student who started this attempt can change it", 403);
-    if (attempt.status !== "in_progress")
-      return errorResponse("This attempt has already been submitted", 409);
+    if (!isStudent) return errorResponse("Only the student who started this attempt can change it", 403);
+    if (attempt.status !== "in_progress") return errorResponse("This attempt has already been submitted", 409);
     if (!quiz) return errorResponse("Quiz not found", 404);
 
     // Time limit is checked against the stored startedAt, never a client timer.
+    // A student removed from the course can still submit saved answers, but not save new ones.
     const now = new Date();
-    const expired = quiz.status !== "published" || isPastDeadline(attempt, quiz, now);
+    const enrolled = await isEnrolled(db, session, quiz.courseId);
+    const expired = quiz.status !== "published" || !enrolled || isPastDeadline(attempt, quiz, now);
+
+    if (action === "save" && !enrolled) return errorResponse("You are no longer enrolled in this quiz's course", 403);
     if (action === "save" && expired) return errorResponse("Time is up for this attempt", 409);
 
-    const questions = await db
-      .collection("questions")
-      .find({ quizId: attempt.quizId })
-      .sort({ order: 1 })
-      .toArray();
+    const questions = await db.collection("questions").find({ quizId: attempt.quizId }).sort({ order: 1 }).toArray();
 
     const validIds = new Set(questions.map((q) => q._id.toString()));
 
@@ -125,11 +124,7 @@ export async function PUT(request, { params }) {
     const attempts = db.collection("attempts");
 
     if (action === "save") {
-      const updated = await attempts.findOneAndUpdate(
-        { _id: attempt._id, status: "in_progress" },
-        { $set: { answers: savedAnswers, updatedAt: now } },
-        { returnDocument: "after" },
-      );
+      const updated = await attempts.findOneAndUpdate({ _id: attempt._id, status: "in_progress" }, { $set: { answers: savedAnswers, updatedAt: now } }, { returnDocument: "after" });
 
       if (!updated) return errorResponse("This attempt has already been submitted", 409);
 
@@ -185,19 +180,13 @@ export async function DELETE(request, { params }) {
     const client = await getClientPromise();
     const db = client.db(process.env.DB_NAME);
 
-    const {
-      attempt,
-      isStudent,
-      isQuizOwner,
-      response: denied,
-    } = await loadForUser(db, id, session);
+    const { attempt, isStudent, isQuizOwner, response: denied } = await loadForUser(db, id, session);
 
     if (denied) return denied;
 
     // Proposal §5: the quiz owner can delete any attempt; the student only while in progress.
     const canDelete = isQuizOwner || (isStudent && attempt.status === "in_progress");
-    if (!canDelete)
-      return errorResponse("You can only discard an attempt that is still in progress", 403);
+    if (!canDelete) return errorResponse("You can only discard an attempt that is still in progress", 403);
 
     const filter = isQuizOwner ? { _id: attempt._id } : { _id: attempt._id, status: "in_progress" };
     const { deletedCount } = await db.collection("attempts").deleteOne(filter);

@@ -21,12 +21,11 @@ export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [creating, setCreating] = useState(false);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
-  const [revision, setRevision] = useState(0);
+  const [formError, setFormError] = useState("");
   const instructor = session.user?.role === "instructor";
 
   useEffect(() => {
@@ -45,21 +44,20 @@ export default function CoursesPage() {
       });
 
     return () => controller.abort();
-  }, [session.user, revision]);
+  }, [session.user]);
 
   async function createCourse(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
-    setError("");
-    setSuccess("");
 
     if (!code.trim() || !name.trim()) {
-      setError("Course code and name are required.");
+      setFormError("Course code and name are required.");
 
       return;
     }
 
     setBusy(true);
+    setFormError("");
 
     try {
       const course = await api<Course>("/api/course", {
@@ -71,9 +69,8 @@ export default function CoursesPage() {
       setCode("");
       setName("");
       setCreating(false);
-      setSuccess(`Course ${course.code} created. Open it to add students.`);
     } catch (err) {
-      setError(message(err));
+      setFormError(message(err));
     } finally {
       setBusy(false);
     }
@@ -86,55 +83,46 @@ export default function CoursesPage() {
       title="My Courses"
       description={
         instructor
-          ? "Group students by course code, then assign quizzes to a course."
-          : "Courses you are enrolled in. Quizzes assigned to these courses appear under Available Quizzes."
+          ? "Create courses and add students. Students only see quizzes from their courses."
+          : "Courses you are enrolled in. Their published quizzes appear under Available Quizzes."
       }
     >
-      <div className="mb-6 flex flex-wrap gap-3">
-        {instructor && (
+      {instructor && (
+        <div className="mb-6 flex flex-wrap gap-3">
           <button className={primary} onClick={() => setCreating((value) => !value)}>
             {creating ? "Hide Form" : "New Course"}
           </button>
-        )}
-        <button
-          className={secondary}
-          disabled={loading}
-          onClick={() => {
-            setLoading(true);
-            setError("");
-            setRevision((value) => value + 1);
-          }}
-        >
-          Refresh
-        </button>
-      </div>
-
+        </div>
+      )}
       {creating && instructor && (
         <section className={`${card} mb-6`}>
           <h2 className="mb-5 text-xl font-semibold">Create Course</h2>
           <form onSubmit={createCourse} className="space-y-4">
-            <fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2">
-              <Field label="Course code (e.g. CSX4107)">
+            <fieldset disabled={busy} className="grid gap-4 sm:grid-cols-[200px_1fr]">
+              <Field label="Course code">
                 <input
-                  className={`${input} uppercase`}
+                  className={input}
+                  placeholder="CSX4107"
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  pattern="[A-Za-z0-9\-]{2,20}"
-                  title="2-20 letters, digits or dashes"
                   required
+                  minLength={7}
                   maxLength={20}
                 />
               </Field>
               <Field label="Course name">
                 <input
                   className={input}
+                  placeholder="Web Application Development"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
+                  minLength={10}
                   maxLength={120}
                 />
               </Field>
             </fieldset>
+            <Notice>{formError}</Notice>
             <div className="flex flex-wrap gap-3">
               <button className={primary} disabled={busy}>
                 {busy ? "Creating..." : "Create Course"}
@@ -151,36 +139,31 @@ export default function CoursesPage() {
           </form>
         </section>
       )}
-
-      <div className="mb-5 space-y-3">
+      <div className="mb-5">
         <Notice>{error}</Notice>
-        <Notice good>{success}</Notice>
       </div>
-
       {loading ? (
         <Loading />
       ) : courses.length === 0 ? (
         <Empty>
           {instructor
-            ? "Create a course to start grouping students."
-            : "You are not enrolled in any course yet. Ask your instructor to add you."}
+            ? "Create your first course, then add students to it."
+            : "You are not in any course yet. Ask your instructor to add your email."}
         </Empty>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
           {courses.map((course) => (
             <article className={card} key={course.id}>
-              <p className="text-xs font-medium uppercase tracking-wider text-orange-600">
-                {course.code}
-              </p>
+              <span className="text-xs font-medium text-orange-600">{course.code}</span>
               <h2 className="mt-2 text-xl font-semibold">{course.name}</h2>
-              <p className="mt-2 text-sm text-stone-500">
-                {course.studentCount} student{course.studentCount === 1 ? "" : "s"}
-              </p>
               {instructor && (
-                <Link className={`${primary} mt-5`} href={`/web-page/courses/${course.id}`}>
-                  Manage Course
-                </Link>
+                <p className="mt-2 text-sm text-stone-500">{course.studentCount} students</p>
               )}
+              <div className="mt-5">
+                <Link className={primary} href={`/web-page/courses/${course.id}`}>
+                  {instructor ? "Manage Course" : "View Course"}
+                </Link>
+              </div>
             </article>
           ))}
         </div>

@@ -1,24 +1,24 @@
 import { z } from "zod";
 
-// "csx 4107" is rejected, "csx4107" becomes "CSX4107".
-export const courseCode = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .regex(/^[A-Z0-9-]{2,20}$/, "Course code must be 2-20 letters, digits or dashes");
+const code = z.string().trim().toUpperCase().min(7, "Please enter a valid course code").max(20, "Course code is too long");
+const name = z.string().trim().min(10, "Please enter a valid course name").max(120, "Course name is too long");
+const student = z.string().trim().toLowerCase().email("Invalid email address");
 
-const name = z.string().trim().min(1, "Course name is required").max(120);
+export const courseCreateSchema = z.object({ code, name }).strict();
 
-export const courseCreateSchema = z.object({ code: courseCode, name }).strict();
+export const courseUpdateSchema = z
+  .object({ code, name })
+  .partial()
+  .strict()
+  .refine((d) => Object.keys(d).length > 0, { message: "Provide at least one field to update." });
 
-// The code is fixed after creation because quizzes reference it.
-export const courseUpdateSchema = z.object({ name }).strict();
-
-export const addStudentsSchema = z
+// Teachers add students by email; the route resolves them to user ids.
+export const addStudentSchema = z
   .object({
-    emails: z
-      .array(z.string().trim().email("Invalid email address"))
-      .min(1, "Add at least one email")
-      .max(200, "Add at most 200 students at a time"),
+    students: z
+      .array(student)
+      .min(1, "Enter at least one student")
+      .max(40, "Maximum of 40 students allowed")
+      .transform((list) => [...new Set(list)]),
   })
   .strict();

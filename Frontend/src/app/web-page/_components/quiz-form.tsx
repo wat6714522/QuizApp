@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { api, localDate, message, type Course, type Quiz, type QuizInput } from "../_lib/api";
 import { Field, Notice, input, primary, secondary } from "./workspace";
@@ -13,16 +14,15 @@ export function QuizForm({
   onSave: (data: QuizInput) => Promise<void>;
   onCancel?: () => void;
 }) {
+  const [courses, setCourses] = useState<Course[] | null>(null);
+  const [courseId, setCourseId] = useState(quiz?.courseId || "");
   const [title, setTitle] = useState(quiz?.title || "");
   const [subject, setSubject] = useState(quiz?.subject || "");
-  const [courseCode, setCourseCode] = useState(quiz?.courseCode || "");
   const [description, setDescription] = useState(quiz?.description || "");
   const [minutes, setMinutes] = useState(quiz?.timeLimitMinutes ?? 10);
   const [passing, setPassing] = useState(quiz?.passingScore ?? 50);
   const [opens, setOpens] = useState(localDate(quiz?.opensAt || null));
   const [closes, setCloses] = useState(localDate(quiz?.closesAt || null));
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [coursesLoading, setCoursesLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -34,10 +34,9 @@ export function QuizForm({
         if (!controller.signal.aborted) setCourses(items);
       })
       .catch((err) => {
-        if (!controller.signal.aborted) setError(message(err));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setCoursesLoading(false);
+        if (controller.signal.aborted) return;
+        setCourses([]);
+        setError(message(err));
       });
 
     return () => controller.abort();
@@ -47,6 +46,12 @@ export function QuizForm({
     event.preventDefault();
     if (busy) return;
     setError("");
+
+    if (!courseId) {
+      setError("Choose a course for this quiz.");
+
+      return;
+    }
 
     if (!title.trim() || !subject.trim()) {
       setError("Title and subject are required.");
@@ -64,9 +69,9 @@ export function QuizForm({
 
     try {
       const data: QuizInput = {
+        courseId,
         title: title.trim(),
         subject: subject.trim(),
-        courseCode: courseCode || null,
         description: description.trim(),
         timeLimitMinutes: minutes,
         passingScore: passing,
@@ -82,13 +87,40 @@ export function QuizForm({
     }
   }
 
-  // Keep the current assignment selectable even before the course list loads.
-  const currentCode = quiz?.courseCode;
-  const missingCurrent = currentCode && !courses.some((c) => c.code === currentCode);
-
   return (
     <form onSubmit={submit} className="space-y-4">
       <fieldset disabled={busy} className="space-y-4">
+        <Field label="Course">
+          <select
+            className={input}
+            value={courseId}
+            onChange={(e) => setCourseId(e.target.value)}
+            required
+            disabled={!courses}
+          >
+            <option value="">
+              {!courses
+                ? "Loading courses..."
+                : courses.length
+                  ? "Select a course"
+                  : "No courses yet"}
+            </option>
+            {courses?.map((course) => (
+              <option key={course.id} value={course.id}>
+                {`${course.code} · ${course.name}`}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {courses && courses.length === 0 && (
+          <p className="text-xs text-stone-500">
+            Only students in the quiz&apos;s course can see it.{" "}
+            <Link className="text-orange-600 underline" href="/web-page/courses">
+              Create a course first
+            </Link>
+            .
+          </p>
+        )}
         <Field label="Quiz title">
           <input
             className={input}
@@ -98,39 +130,15 @@ export function QuizForm({
             maxLength={120}
           />
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Subject">
-            <input
-              className={input}
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              required
-              maxLength={120}
-            />
-          </Field>
-          <Field label="Assign to">
-            <select
-              className={input}
-              value={courseCode}
-              onChange={(e) => setCourseCode(e.target.value)}
-              disabled={coursesLoading}
-            >
-              <option value="">All students</option>
-              {missingCurrent && <option value={currentCode}>{currentCode}</option>}
-              {courses.map((course) => (
-                <option key={course.id} value={course.code}>
-                  {`${course.code} — ${course.name} (${course.studentCount} students)`}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
-        {!coursesLoading && courses.length === 0 && (
-          <p className="text-xs text-stone-500">
-            You have no courses yet. Create one under My Courses to assign this quiz to a specific
-            group of students.
-          </p>
-        )}
+        <Field label="Subject">
+          <input
+            className={input}
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            required
+            maxLength={120}
+          />
+        </Field>
         <Field label="Description">
           <textarea
             className={input}

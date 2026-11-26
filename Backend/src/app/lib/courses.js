@@ -1,39 +1,30 @@
 import { ObjectId } from "mongodb";
-import { parseObjectId } from "@/app/lib/params";
 import { errorResponse } from "@/app/lib/utils";
 
-// Codes of every course the student is enrolled in.
-export async function enrolledCourseCodes(db, studentId) {
+// Courses store enrolled students as user ids (studentIds), so enrollment
+// never depends on how an email was typed.
+
+export async function enrolledCourseIds(db, session) {
   const courses = await db
     .collection("courses")
-    .find({ studentIds: new ObjectId(studentId) }, { projection: { code: 1 } })
+    .find({ studentIds: new ObjectId(session.userId) }, { projection: { _id: 1 } })
     .toArray();
 
-  return courses.map((c) => c.code);
+  return courses.map((c) => c._id);
 }
 
-export async function isEnrolled(db, studentId, code) {
-  const count = await db
-    .collection("courses")
-    .countDocuments({ code, studentIds: new ObjectId(studentId) }, { limit: 1 });
+export async function isEnrolled(db, session, courseId) {
+  if (!courseId) return false;
+
+  const count = await db.collection("courses").countDocuments({ _id: courseId, studentIds: new ObjectId(session.userId) }, { limit: 1 });
 
   return count > 0;
 }
 
-export async function ownsCourse(db, instructorId, code) {
-  const count = await db
-    .collection("courses")
-    .countDocuments({ code, ownerId: new ObjectId(instructorId) }, { limit: 1 });
-
-  return count > 0;
-}
-
-// Loads /api/course/[course_id] and checks the caller owns it.
-export async function findOwnedCourse(db, params, session) {
-  const courseId = await parseObjectId(params, "course_id");
-  if (!courseId) return { course: null, response: errorResponse("Invalid course id", 400) };
-
+// For instructor-only routes. Returns { course, response } like the other guards.
+export async function loadOwnedCourse(db, courseId, session) {
   const course = await db.collection("courses").findOne({ _id: courseId });
+
   if (!course) return { course: null, response: errorResponse("Course not found", 404) };
 
   if (course.ownerId.toString() !== session.userId) {
@@ -41,4 +32,18 @@ export async function findOwnedCourse(db, params, session) {
   }
 
   return { course, response: null };
+}
+
+// Turns stored student ids into { id, name, email } for the teacher's roster.
+// Accounts that were deleted simply drop out of the list.
+export async function loadRoster(db, studentIds = []) {
+  if (studentIds.length === 0) return [];
+
+  const users = await db
+    .collection("users")
+    .find({ _id: { $in: studentIds } }, { projection: { name: 1, email: 1 } })
+    .sort({ name: 1 })
+    .toArray();
+
+  return users.map((u) => ({ id: u._id.toString(), name: u.name, email: u.email }));
 }

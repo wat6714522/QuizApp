@@ -34,6 +34,11 @@ import {
 
 export default function QuizPage() {
   const { quizId } = useParams<{ quizId: string }>();
+
+  return <QuizDetails key={quizId} quizId={quizId} />;
+}
+
+function QuizDetails({ quizId }: { quizId: string }) {
   const router = useRouter();
   const session = useSession();
   const [quiz, setQuiz] = useState<Quiz | null>(null);
@@ -250,7 +255,6 @@ export default function QuizPage() {
                   Time limit: {quiz.timeLimitMinutes ? `${quiz.timeLimitMinutes} minutes` : "None"}
                 </p>
                 <p>Passing score: {quiz.passingScore}%</p>
-                <p>Assigned to: {quiz.courseCode || "All students"}</p>
                 <p>Opens: {dateLabel(quiz.opensAt)}</p>
                 <p>Closes: {dateLabel(quiz.closesAt)}</p>
               </div>

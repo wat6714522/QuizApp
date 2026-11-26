@@ -17,7 +17,7 @@ export async function GET(request) {
     const db = client.db(process.env.DB_NAME);
 
     const quiz = await db.collection("quizzes").findOne({ _id: quizId });
-    const access = quiz && quizAccess(session, quiz);
+    const access = quiz && (await quizAccess(db, session, quiz));
     if (!access) return errorResponse("Quiz not found", 404);
 
     const questions = await db
@@ -45,9 +45,7 @@ export async function POST(request) {
     const client = await getClientPromise();
     const db = client.db(process.env.DB_NAME);
 
-    const quiz = await db
-      .collection("quizzes")
-      .findOne({ _id: quizId }, { projection: { ownerId: 1 } });
+    const quiz = await db.collection("quizzes").findOne({ _id: quizId }, { projection: { ownerId: 1 } });
 
     if (!quiz) return errorResponse("Quiz not found", 404);
 
@@ -71,12 +69,7 @@ export async function POST(request) {
     let order = data.order;
 
     if (order === undefined) {
-      const last = await questions
-        .find({ quizId })
-        .sort({ order: -1 })
-        .limit(1)
-        .project({ order: 1 })
-        .next();
+      const last = await questions.find({ quizId }).sort({ order: -1 }).limit(1).project({ order: 1 }).next();
 
       order = last ? last.order + 1 : 1;
     }

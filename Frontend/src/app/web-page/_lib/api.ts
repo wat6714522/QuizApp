@@ -3,17 +3,32 @@ export type User = {
   name: string;
   email: string;
   role: "student" | "instructor";
-  isAdmin?: boolean;
+  canInviteInstructors?: boolean;
 };
 
 export type QuizStatus = "draft" | "published" | "closed";
 
+export type Student = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+export type Course = {
+  id: string;
+  ownerId: string;
+  code: string;
+  name: string;
+  studentCount: number;
+  students?: Student[];
+};
+
 export type Quiz = {
   id: string;
   ownerId: string;
+  courseId: string | null;
   title: string;
   subject: string;
-  courseCode: string | null;
   description: string;
   status: QuizStatus;
   timeLimitMinutes: number;
@@ -24,7 +39,10 @@ export type Quiz = {
 
 export type QuestionType = "multiple_choice" | "true_false" | "short_answer";
 
-export type Choice = { key: string; text: string };
+export type Choice = {
+  key: string;
+  text: string;
+};
 
 export type Question = {
   id: string;
@@ -61,32 +79,14 @@ export type Attempt = {
 };
 
 export type QuizInput = {
+  courseId: string;
   title: string;
   subject: string;
-  courseCode: string | null;
   description: string;
   timeLimitMinutes: number;
   passingScore: number;
   opensAt?: string | null;
   closesAt?: string | null;
-};
-
-export type Course = {
-  id: string;
-  ownerId: string;
-  code: string;
-  name: string;
-  studentCount: number;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type CourseStudent = { id: string; name: string; email: string };
-
-export type CourseDetail = {
-  course: Course;
-  students: CourseStudent[];
-  quizCount: number;
 };
 
 export type QuestionInput = {
@@ -112,7 +112,10 @@ export class ApiError extends Error {
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
-  if (options.body) headers.set("Content-Type", "application/json");
+
+  if (options.body) {
+    headers.set("Content-Type", "application/json");
+  }
 
   const response = await fetch(API_URL + path, {
     ...options,
@@ -121,15 +124,15 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     cache: "no-store",
   });
 
-  if (response.status === 204) return undefined as T;
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
     if (response.status === 401 && typeof window !== "undefined") {
-      // A full page load is intended here: it clears all client state once the
-      // session is gone. useRouter() isn't available in this plain helper.
-      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-      window.location.assign("/web-page/login");
+      window.dispatchEvent(new Event("quizdeck:unauthorized"));
     }
 
     throw new ApiError(
@@ -138,7 +141,9 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     );
   }
 
-  if (data === null) throw new Error("Unexpected server response.");
+  if (data === null) {
+    throw new Error("Unexpected server response.");
+  }
 
   return data as T;
 }
@@ -155,36 +160,53 @@ export async function allQuizzes(signal?: AbortSignal): Promise<Quiz[]> {
   const items: Quiz[] = [];
 
   for (let page = 1; ; page++) {
-    const batch = await api<Quiz[]>(`/api/quiz?page=${page}&limit=50`, {
-      signal,
-    });
+    const batch = await api<Quiz[]>(`/api/quiz?page=${page}&limit=50`, { signal });
 
-    if (!Array.isArray(batch)) throw new Error("Unexpected quiz response.");
+    if (!Array.isArray(batch)) {
+      throw new Error("Unexpected quiz response.");
+    }
+
     items.push(...batch);
-    if (batch.length < 50) return items;
+
+    if (batch.length < 50) {
+      return items;
+    }
   }
 }
 
 export function availability(quiz: Quiz, now = Date.now()) {
   if (quiz.status !== "published") return quiz.status;
-  if (quiz.opensAt && new Date(quiz.opensAt).getTime() > now) return "Upcoming";
-  if (quiz.closesAt && new Date(quiz.closesAt).getTime() < now) return "Closed";
+
+  if (quiz.opensAt && new Date(quiz.opensAt).getTime() > now) {
+    return "Upcoming";
+  }
+
+  if (quiz.closesAt && new Date(quiz.closesAt).getTime() < now) {
+    return "Closed";
+  }
 
   return "Open";
 }
 
 export function deadline(attempt: Attempt, quiz: Quiz | null): number | null {
   if (!quiz) return null;
+
   const limits: number[] = [];
-  if (quiz.timeLimitMinutes > 0)
+
+  if (quiz.timeLimitMinutes > 0) {
     limits.push(new Date(attempt.startedAt).getTime() + quiz.timeLimitMinutes * 60_000);
-  if (quiz.closesAt) limits.push(new Date(quiz.closesAt).getTime());
+  }
+
+  if (quiz.closesAt) {
+    limits.push(new Date(quiz.closesAt).getTime());
+  }
 
   return limits.length ? Math.min(...limits) : null;
 }
 
 export function localDate(value: string | null): string {
   if (!value) return "";
+
   const date = new Date(value);
   const offset = date.getTimezoneOffset() * 60_000;
 
@@ -196,7 +218,9 @@ export function dateLabel(value: string | null): string {
 }
 
 export function answerLabel(question: Question, value: string | null | undefined): string {
-  if (value === null || value === undefined || value === "") return "No answer";
+  if (value === null || value === undefined || value === "") {
+    return "No answer";
+  }
 
   if (question.type === "multiple_choice") {
     const choice = question.choices?.find((item) => item.key === value);

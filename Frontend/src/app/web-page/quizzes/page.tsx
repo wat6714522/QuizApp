@@ -9,6 +9,7 @@ import {
   availability,
   dateLabel,
   message,
+  type Course,
   type Quiz,
   type QuizInput,
 } from "../_lib/api";
@@ -31,6 +32,7 @@ export default function QuizzesPage() {
   const session = useSession();
   const router = useRouter();
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -38,6 +40,7 @@ export default function QuizzesPage() {
   const [busy, setBusy] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [courseFilter, setCourseFilter] = useState("all");
   const [revision, setRevision] = useState(0);
   const instructor = session.user?.role === "instructor";
 
@@ -45,9 +48,14 @@ export default function QuizzesPage() {
     if (!session.user) return;
     const controller = new AbortController();
 
-    allQuizzes(controller.signal)
-      .then((items) => {
-        if (!controller.signal.aborted) setQuizzes(items);
+    Promise.all([
+      allQuizzes(controller.signal),
+      api<Course[]>("/api/course", { signal: controller.signal }),
+    ])
+      .then(([items, courseItems]) => {
+        if (controller.signal.aborted) return;
+        setQuizzes(items);
+        setCourses(courseItems);
       })
       .catch((err) => {
         if (!controller.signal.aborted) setError(message(err));
@@ -58,6 +66,10 @@ export default function QuizzesPage() {
 
     return () => controller.abort();
   }, [session.user, revision]);
+
+  function courseCode(id: string | null) {
+    return courses.find((course) => course.id === id)?.code ?? "No course";
+  }
 
   async function createQuiz(data: QuizInput) {
     const quiz = await api<Quiz>("/api/quiz", {
@@ -92,13 +104,15 @@ export default function QuizzesPage() {
   }
 
   const visible = quizzes.filter((quiz) => {
-    const matchesText = `${quiz.title} ${quiz.subject} ${quiz.courseCode ?? ""}`
+    const matchesText = `${quiz.title} ${quiz.subject} ${courseCode(quiz.courseId)}`
       .toLowerCase()
       .includes(search.toLowerCase());
 
     const status = instructor ? quiz.status : availability(quiz);
 
-    return matchesText && (filter === "all" || status.toLowerCase() === filter);
+    const matchesCourse = courseFilter === "all" || quiz.courseId === courseFilter;
+
+    return matchesText && matchesCourse && (filter === "all" || status.toLowerCase() === filter);
   });
 
   return (
@@ -108,8 +122,8 @@ export default function QuizzesPage() {
       title={instructor ? "My Quizzes" : "Available Quizzes"}
       description={
         instructor
-          ? "Create quizzes, manage questions, and publish to your classroom."
-          : "Choose a quiz to begin or continue your attempt."
+          ? "Create quizzes, manage questions, and publish to your courses."
+          : "Quizzes from the courses you are enrolled in."
       }
     >
       <div className="mb-6 flex flex-wrap gap-3">
@@ -143,14 +157,27 @@ export default function QuizzesPage() {
         <Notice>{error}</Notice>
         <Notice good>{success}</Notice>
       </div>
-      <div className="mb-6 grid gap-3 sm:grid-cols-[1fr_200px]">
+      <div className="mb-6 grid gap-3 sm:grid-cols-[1fr_200px_200px]">
         <input
           aria-label="Search quizzes"
           className={input}
-          placeholder="Search title, subject or course"
+          placeholder="Search title, subject, or course"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        <select
+          aria-label="Filter by course"
+          className={input}
+          value={courseFilter}
+          onChange={(e) => setCourseFilter(e.target.value)}
+        >
+          <option value="all">All courses</option>
+          {courses.map((course) => (
+            <option key={course.id} value={course.id}>
+              {course.code}
+            </option>
+          ))}
+        </select>
         <select
           aria-label="Filter quizzes"
           className={input}
@@ -181,7 +208,7 @@ export default function QuizzesPage() {
             ? "No quizzes match your search."
             : instructor
               ? "Create your first quiz to get started."
-              : "No quizzes are assigned to you yet."}
+              : "No quizzes are available in your courses yet."}
         </Empty>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
@@ -189,7 +216,7 @@ export default function QuizzesPage() {
             <article className={card} key={quiz.id}>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs font-medium text-orange-600">
-                  {quiz.subject} · {quiz.courseCode || "All students"}
+                  {`${courseCode(quiz.courseId)} · ${quiz.subject}`}
                 </span>
                 <Badge>{availability(quiz)}</Badge>
               </div>
