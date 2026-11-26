@@ -2,8 +2,9 @@ import { ObjectId } from "mongodb";
 import { getClientPromise } from "@/app/lib/mongodb";
 import { requireAuth, requireRole } from "@/app/lib/authentication/session";
 import { serializeQuiz } from "@/app/lib/api";
+import { enrolledCourseIds, loadOwnedCourse } from "@/app/lib/courses";
 import { errorResponse, printExceptionLog, successResponse } from "@/app/lib/utils";
-import { quizCreateSchema, QUIZ_STATUSES } from "@/app/lib/validation/quiz";
+import { QUIZ_STATUSES, quizCreateSchema } from "@/app/lib/validation/quiz";
 
 export async function GET(request) {
   try {
@@ -14,11 +15,11 @@ export async function GET(request) {
     const page = Math.max(1, Number(searchParams.get("page")) || 1);
     const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit")) || 20));
 
-    // Instructors see their own quizzes; students see published ones.
-    const filter =
-      session.role === "instructor"
-        ? { ownerId: new ObjectId(session.userId) }
-        : { status: "published" };
+    const client = await getClientPromise();
+    const db = client.db(process.env.DB_NAME);
+
+    // Instructors see their own quizzes; students see published quizzes in their courses.
+    const filter = session.role === "instructor" ? { ownerId: new ObjectId(session.userId) } : { status: "published", courseId: { $in: await enrolledCourseIds(db, session) } };
 
     const subject = searchParams.get("subject");
     if (subject) filter.subject = subject;
@@ -29,9 +30,6 @@ export async function GET(request) {
       if (!QUIZ_STATUSES.includes(status)) return errorResponse("Invalid status filter", 400);
       filter.status = status;
     }
-    
-    const client = await getClientPromise();
-    const db = client.db(process.env.DB_NAME);
 
     const quizzes = await db
       .collection("quizzes")
@@ -66,6 +64,14 @@ export async function POST(request) {
     if (!parsed.success) return errorResponse(parsed.error.issues[0].message, 400);
     const data = parsed.data;
 
+    const client = await getClientPromise();
+    const db = client.db(process.env.DB_NAME);
+
+    // The quiz can only go into a course this instructor owns.
+    const courseId = new ObjectId(data.courseId);
+    const { response: badCourse } = await loadOwnedCourse(db, courseId, session);
+    if (badCourse) return badCourse;
+
     const now = new Date();
 
     const quiz = {
@@ -73,6 +79,7 @@ export async function POST(request) {
       description: data.description,
       subject: data.subject,
       ownerId: new ObjectId(session.userId), // from the session, never the body
+      courseId,
       timeLimitMinutes: data.timeLimitMinutes,
       opensAt: data.opensAt ?? null,
       closesAt: data.closesAt ?? null,
@@ -81,9 +88,6 @@ export async function POST(request) {
       createdAt: now,
       updatedAt: now,
     };
-
-    const client = await getClientPromise();
-    const db = client.db(process.env.DB_NAME)
 
     await db.collection("quizzes").insertOne(quiz); // adds quiz._id
 

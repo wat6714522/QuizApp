@@ -4,24 +4,14 @@ import { errorResponse, printExceptionLog, successResponse } from "@/app/lib/uti
 import { parseObjectId } from "@/app/lib/params";
 import { serializeQuestion } from "@/app/lib/api";
 import { requireAuth, requireOwner, requireRole } from "@/app/lib/authentication/session";
-import {
-  EDITABLE_FIELDS,
-  questionPatchSchema,
-  questionSchema,
-  toQuestionDoc,
-} from "@/app/lib/validation/question";
+import { EDITABLE_FIELDS, questionPatchSchema, questionSchema, toQuestionDoc } from "@/app/lib/validation/question";
 import corsHeaders from "@/app/lib/cors";
 
 async function loadQuestionAndQuiz(db, id) {
   const question = await db.collection("questions").findOne({ _id: id });
   if (!question) return {};
 
-  const quiz = await db
-    .collection("quizzes")
-    .findOne(
-      { _id: question.quizId },
-      { projection: { ownerId: 1, status: 1, opensAt: 1, closesAt: 1 } },
-    );
+  const quiz = await db.collection("quizzes").findOne({ _id: question.quizId }, { projection: { ownerId: 1, courseId: 1, status: 1, opensAt: 1, closesAt: 1 } });
 
   return { question, quiz };
 }
@@ -38,7 +28,7 @@ export async function GET(request, { params }) {
     const db = client.db(process.env.DB_NAME);
 
     const { question, quiz } = await loadQuestionAndQuiz(db, id);
-    const access = quiz && quizAccess(session, quiz);
+    const access = quiz && (await quizAccess(db, session, quiz));
     if (!access) return errorResponse("Question not found", 404);
 
     if (access === "reader") {
@@ -87,19 +77,17 @@ export async function PUT(request, { params }) {
     const merged = questionSchema.safeParse({ ...current, ...parsed.data });
     if (!merged.success) return errorResponse(merged.error.issues[0].message, 400);
 
-    const updated = await db
-      .collection("questions")
-      .findOneAndUpdate(
-        { _id: id },
-        {
-          $set: {
-            ...toQuestionDoc(merged.data),
-            order: merged.data.order ?? question.order,
-            updatedAt: new Date(),
-          },
+    const updated = await db.collection("questions").findOneAndUpdate(
+      { _id: id },
+      {
+        $set: {
+          ...toQuestionDoc(merged.data),
+          order: merged.data.order ?? question.order,
+          updatedAt: new Date(),
         },
-        { returnDocument: "after" },
-      );
+      },
+      { returnDocument: "after" },
+    );
 
     if (!updated) return errorResponse("Question not found", 404);
 

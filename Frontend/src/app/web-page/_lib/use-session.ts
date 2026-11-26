@@ -31,10 +31,7 @@ export function useSession() {
       signal: controller.signal,
     })
       .then((data) => {
-        if (
-          !data.user?.id ||
-          !["student", "instructor"].includes(data.user.role)
-        ) {
+        if (!data.user?.id || !["student", "instructor"].includes(data.user.role)) {
           throw new Error("Unexpected user response.");
         }
 

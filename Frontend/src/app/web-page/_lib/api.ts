@@ -8,9 +8,25 @@ export type User = {
 
 export type QuizStatus = "draft" | "published" | "closed";
 
+export type Student = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+export type Course = {
+  id: string;
+  ownerId: string;
+  code: string;
+  name: string;
+  studentCount: number;
+  students?: Student[];
+};
+
 export type Quiz = {
   id: string;
   ownerId: string;
+  courseId: string | null;
   title: string;
   subject: string;
   description: string;
@@ -63,6 +79,7 @@ export type Attempt = {
 };
 
 export type QuizInput = {
+  courseId: string;
   title: string;
   subject: string;
   description: string;
@@ -82,9 +99,7 @@ export type QuestionInput = {
   choices?: Choice[];
 };
 
-const API_URL = (
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"
-).replace(/\/$/, "");
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000").replace(/\/$/, "");
 
 export class ApiError extends Error {
   constructor(
@@ -95,10 +110,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
+export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
 
   if (options.body) {
@@ -148,10 +160,7 @@ export async function allQuizzes(signal?: AbortSignal): Promise<Quiz[]> {
   const items: Quiz[] = [];
 
   for (let page = 1; ; page++) {
-    const batch = await api<Quiz[]>(
-      "/api/quiz?page=" + page + "&limit=50",
-      { signal },
-    );
+    const batch = await api<Quiz[]>(`/api/quiz?page=${page}&limit=50`, { signal });
 
     if (!Array.isArray(batch)) {
       throw new Error("Unexpected quiz response.");
@@ -179,18 +188,13 @@ export function availability(quiz: Quiz, now = Date.now()) {
   return "Open";
 }
 
-export function deadline(
-  attempt: Attempt,
-  quiz: Quiz | null,
-): number | null {
+export function deadline(attempt: Attempt, quiz: Quiz | null): number | null {
   if (!quiz) return null;
 
   const limits: number[] = [];
 
   if (quiz.timeLimitMinutes > 0) {
-    limits.push(
-      new Date(attempt.startedAt).getTime() + quiz.timeLimitMinutes * 60_000,
-    );
+    limits.push(new Date(attempt.startedAt).getTime() + quiz.timeLimitMinutes * 60_000);
   }
 
   if (quiz.closesAt) {
@@ -213,10 +217,7 @@ export function dateLabel(value: string | null): string {
   return value ? new Date(value).toLocaleString("en-GB") : "Not set";
 }
 
-export function answerLabel(
-  question: Question,
-  value: string | null | undefined,
-): string {
+export function answerLabel(question: Question, value: string | null | undefined): string {
   if (value === null || value === undefined || value === "") {
     return "No answer";
   }
@@ -224,12 +225,8 @@ export function answerLabel(
   if (question.type === "multiple_choice") {
     const choice = question.choices?.find((item) => item.key === value);
 
-    return choice ? choice.key + ". " + choice.text : value;
+    return choice ? `${choice.key}. ${choice.text}` : value;
   }
 
-  return question.type === "true_false"
-    ? value === "true"
-      ? "True"
-      : "False"
-    : value;
+  return question.type === "true_false" ? (value === "true" ? "True" : "False") : value;
 }

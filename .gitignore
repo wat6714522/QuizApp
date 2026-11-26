@@ -1,6 +1,5 @@
 
 # dependencies
-/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -19,7 +18,7 @@
 /.next/
 /out/
 /Backend/.next
-
+/Backend/http
 # production
 /build
 

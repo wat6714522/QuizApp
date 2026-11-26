@@ -42,9 +42,7 @@ export default function InvitationsPage() {
   const [created, setCreated] = useState<CreatedInvitation | null>(null);
 
   const canInvite =
-    session.user?.role === "instructor" &&
-    session.user.canInviteInstructors === true &&
-    !forbidden;
+    session.user?.role === "instructor" && session.user.canInviteInstructors === true && !forbidden;
 
   async function createInvitation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,13 +54,10 @@ export default function InvitationsPage() {
     setCopied(false);
 
     try {
-      const data = await api<InvitationResponse>(
-        "/api/authentication/invitations",
-        {
-          method: "POST",
-          body: JSON.stringify({ email: email.trim() }),
-        },
-      );
+      const data = await api<InvitationResponse>("/api/authentication/invitations", {
+        method: "POST",
+        body: JSON.stringify({ email: email.trim() }),
+      });
 
       if (
         typeof data.token !== "string" ||
@@ -75,10 +70,8 @@ export default function InvitationsPage() {
         throw new Error("Unexpected invitation response. Please try again.");
       }
 
-      const link = new URL(
-        "/web-page/register-instructor",
-        window.location.origin,
-      );
+      const link = new URL("/web-page/register-instructor", window.location.origin);
+
       link.searchParams.set("token", data.token);
 
       setCreated({
@@ -92,6 +85,7 @@ export default function InvitationsPage() {
         setForbidden(true);
         setCreated(null);
       }
+
       setError(message(err));
     } finally {
       setBusy(false);
@@ -113,9 +107,7 @@ export default function InvitationsPage() {
     } catch {
       linkInput.current?.focus();
       linkInput.current?.select();
-      setCopyError(
-        "Could not copy automatically. Select the link and copy it manually.",
-      );
+      setCopyError("Could not copy automatically. Select the link and copy it manually.");
     } finally {
       setCopying(false);
     }
@@ -132,17 +124,15 @@ export default function InvitationsPage() {
         <Notice>{error}</Notice>
 
         {!canInvite ? (
-          !error && (
-            <Notice>You do not have permission to invite instructors.</Notice>
-          )
+          !error && <Notice>You do not have permission to invite instructors.</Notice>
         ) : (
           <>
             <section className={card}>
               <h2 className="text-lg font-semibold">New invitation</h2>
 
               <p className="mt-2 text-sm leading-6 text-stone-500">
-                Enter the email the instructor will use to register. The link
-                expires after 24 hours and can be used once.
+                Enter the email the instructor will use to register. The link expires after 24 hours
+                and can be used once.
               </p>
 
               <form onSubmit={createInvitation} className="mt-6 space-y-5">
@@ -161,21 +151,15 @@ export default function InvitationsPage() {
                   />
                 </Field>
 
-                <button
-                  type="submit"
-                  disabled={busy || copying}
-                  className={primary}
-                >
+                <button type="submit" disabled={busy || copying} className={primary}>
                   {busy ? "Creating..." : "Create invitation"}
                 </button>
               </form>
             </section>
 
             {created && (
-              <section className={card + " space-y-5"}>
-                <Notice good>
-                  Invitation created for {created.email}.
-                </Notice>
+              <section className={`${card} space-y-5`}>
+                <Notice good>Invitation created for {created.email}.</Notice>
 
                 <Field label="Registration link">
                   <input
@@ -203,8 +187,8 @@ export default function InvitationsPage() {
                 <p className="text-sm leading-6 text-stone-500">
                   Expires: {new Date(created.expiresAt).toLocaleString()}
                   <br />
-                  Copy this link and send it to {created.email}. No email is
-                  sent automatically. Save the link before leaving this page.
+                  Copy this link and send it to {created.email}. No email is sent automatically.
+                  Save the link before leaving this page.
                 </p>
               </section>
             )}

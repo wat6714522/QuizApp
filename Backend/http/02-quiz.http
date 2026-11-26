@@ -1,9 +1,11 @@
+# Needs: tokens/ids from 00-auth, courseId + otherCourseId from 01-course
+
 ### Create quiz unauthenticated -> 401
 # @no-cookie-jar
 POST {{host}}/api/quiz
 Content-Type: application/json
 
-{ "title": "x", "subject": "CSX4107" }
+{ "courseId": "{{courseId}}", "title": "x", "subject": "CSX4107" }
 
 > {% client.test("401", () => client.assert(response.status === 401, `got ${response.status}`)); %}
 
@@ -13,7 +15,7 @@ POST {{host}}/api/quiz
 Cookie: qd_session={{studentToken}}
 Content-Type: application/json
 
-{ "title": "Student quiz", "subject": "CSX4107", "timeLimitMinutes": 10, "passingScore": 50 }
+{ "courseId": "{{courseId}}", "title": "Student quiz", "subject": "CSX4107", "timeLimitMinutes": 10, "passingScore": 50 }
 
 > {%
   client.test("403 with error envelope", () => {
@@ -28,17 +30,58 @@ POST {{host}}/api/quiz
 Cookie: qd_session={{instructorToken}}
 Content-Type: application/json
 
-{ "subject": "CSX4107", "timeLimitMinutes": 10, "passingScore": 50 }
+{ "courseId": "{{courseId}}", "subject": "CSX4107", "timeLimitMinutes": 10, "passingScore": 50 }
 
 > {% client.test("400", () => client.assert(response.status === 400, `got ${response.status}`)); %}
 
-### Create quiz (valid) -> 201, draft, owned by caller
+### Create quiz without courseId -> 400
+# @no-cookie-jar
+POST {{host}}/api/quiz
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "title": "No course", "subject": "CSX4107" }
+
+> {% client.test("400", () => client.assert(response.status === 400, `got ${response.status}`)); %}
+
+### Create quiz with a malformed courseId -> 400
+# @no-cookie-jar
+POST {{host}}/api/quiz
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "courseId": "abc", "title": "Bad course", "subject": "CSX4107" }
+
+> {% client.test("400", () => client.assert(response.status === 400, `got ${response.status}`)); %}
+
+### Create quiz in a course that doesn't exist -> 404
+# @no-cookie-jar
+POST {{host}}/api/quiz
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "courseId": "{{missingId}}", "title": "Missing course", "subject": "CSX4107" }
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### Create quiz in another instructor's course -> 403
+# @no-cookie-jar
+POST {{host}}/api/quiz
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "courseId": "{{otherCourseId}}", "title": "Wrong course", "subject": "CSX4107" }
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Create quiz (valid) -> 201, draft, owned by caller, in the course
 # @no-cookie-jar
 POST {{host}}/api/quiz
 Cookie: qd_session={{instructorToken}}
 Content-Type: application/json
 
 {
+  "courseId": "{{courseId}}",
   "title": "HTTP Test Quiz",
   "description": "Created by the WebStorm HTTP tests",
   "subject": "CSX4107",
@@ -49,12 +92,13 @@ Content-Type: application/json
 }
 
 > {%
-  client.test("201, draft, ownerId, proposal field names", () => {
+  client.test("201, draft, ownerId, courseId, proposal field names", () => {
     client.assert(response.status === 201, `got ${response.status}`);
-    const q = response.body.quiz ?? response.body;
+    const q = response.body;
     client.assert(q.id, "missing id");
     client.assert(q.status === "draft", `status ${q.status}`);
     client.assert(q.ownerId === client.global.get("instructorId"), "ownerId is not the caller");
+    client.assert(q.courseId === client.global.get("courseId"), `courseId ${q.courseId}`);
     client.assert(q.timeLimitMinutes === 10 && q.opensAt && q.closesAt, "field names differ from proposal §4.2");
     client.global.set("quizId", q.id);
   });
@@ -66,12 +110,12 @@ POST {{host}}/api/quiz
 Cookie: qd_session={{instructorToken}}
 Content-Type: application/json
 
-{ "title": "Untimed quiz", "subject": "CSX4107", "timeLimitMinutes": 0, "passingScore": 50 }
+{ "courseId": "{{courseId}}", "title": "Untimed quiz", "subject": "CSX4107", "timeLimitMinutes": 0, "passingScore": 50 }
 
 > {%
   client.test("201 — 0 means untimed per proposal", () => {
     client.assert(response.status === 201, `got ${response.status}`);
-    client.global.set("untimedQuizId", (response.body.quiz ?? response.body).id);
+    client.global.set("untimedQuizId", response.body.id);
   });
 %}
 
@@ -80,9 +124,9 @@ Content-Type: application/json
 DELETE {{host}}/api/quiz/{{untimedQuizId}}
 Cookie: qd_session={{instructorToken}}
 
-> {% client.test("200/204", () => client.assert([200, 204].includes(response.status), `got ${response.status}`)); %}
+> {% client.test("204", () => client.assert(response.status === 204, `got ${response.status}`)); %}
 
-### List quiz as instructor, filtered + paginated
+### List quizzes as instructor, filtered + paginated
 # @no-cookie-jar
 GET {{host}}/api/quiz?subject=CSX4107&page=1&limit=10
 Cookie: qd_session={{instructorToken}}
@@ -90,10 +134,8 @@ Cookie: qd_session={{instructorToken}}
 > {%
   client.test("200 and contains the new quiz", () => {
     client.assert(response.status === 200, `got ${response.status}`);
-    const b = response.body;
-    const list = Array.isArray(b) ? b : (b.quiz ?? b.items ?? b.data ?? []);
-    client.assert(list.some((q) => q.id === client.global.get("quizId")), "quiz not in list");
-    client.assert(list.every((q) => q.subject === "CSX4107"), "subject filter ignored");
+    client.assert(response.body.some((q) => q.id === client.global.get("quizId")), "quiz not in list");
+    client.assert(response.body.every((q) => q.subject === "CSX4107"), "subject filter ignored");
   });
 %}
 
@@ -104,13 +146,11 @@ Cookie: qd_session={{instructorToken}}
 
 > {%
   client.test("only drafts", () => {
-    const b = response.body;
-    const list = Array.isArray(b) ? b : (b.quiz ?? b.items ?? b.data ?? []);
-    client.assert(response.status === 200 && list.every((q) => q.status === "draft"), "status filter ignored");
+    client.assert(response.status === 200 && response.body.every((q) => q.status === "draft"), "status filter ignored");
   });
 %}
 
-### List as student hides drafts
+### List as enrolled student hides drafts
 # @no-cookie-jar
 GET {{host}}/api/quiz
 Cookie: qd_session={{studentToken}}
@@ -118,10 +158,8 @@ Cookie: qd_session={{studentToken}}
 > {%
   client.test("draft quiz not visible to student", () => {
     client.assert(response.status === 200, `got ${response.status}`);
-    const b = response.body;
-    const list = Array.isArray(b) ? b : (b.quiz ?? b.items ?? b.data ?? []);
-    client.assert(!list.some((q) => q.id === client.global.get("quizId")), "draft leaked");
-    client.assert(list.every((q) => q.status === "published"), "non-published quiz in student list");
+    client.assert(!response.body.some((q) => q.id === client.global.get("quizId")), "draft leaked");
+    client.assert(response.body.every((q) => q.status === "published"), "non-published quiz in student list");
   });
 %}
 
@@ -138,7 +176,7 @@ Cookie: qd_session={{instructorToken}}
   });
 %}
 
-### Get draft quiz as student -> 404
+### Get draft quiz as enrolled student -> 404
 # @no-cookie-jar
 GET {{host}}/api/quiz/{{quizId}}
 Cookie: qd_session={{studentToken}}
@@ -170,10 +208,29 @@ Content-Type: application/json
 > {%
   client.test("200 and title changed", () => {
     client.assert(response.status === 200, `got ${response.status}`);
-    const q = response.body.quiz ?? response.body;
-    client.assert(q.title === "HTTP Test Quiz (edited)" && q.passingScore === 60, "not updated");
+    client.assert(response.body.title === "HTTP Test Quiz (edited)" && response.body.passingScore === 60, "not updated");
   });
 %}
+
+### Move quiz into another instructor's course -> 403
+# @no-cookie-jar
+PUT {{host}}/api/quiz/{{quizId}}
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "courseId": "{{otherCourseId}}" }
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Move quiz into a missing course -> 404
+# @no-cookie-jar
+PUT {{host}}/api/quiz/{{quizId}}
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "courseId": "{{missingId}}" }
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
 
 ### Update as student -> 403
 # @no-cookie-jar
@@ -212,5 +269,12 @@ Cookie: qd_session={{instructorToken}}
 Content-Type: application/json
 
 { "status": "published" }
+
+> {% client.test("409", () => client.assert(response.status === 409, `got ${response.status}`)); %}
+
+### A course that still has quizzes can't be deleted -> 409
+# @no-cookie-jar
+DELETE {{host}}/api/course/{{courseId}}
+Cookie: qd_session={{instructorToken}}
 
 > {% client.test("409", () => client.assert(response.status === 409, `got ${response.status}`)); %}

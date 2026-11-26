@@ -17,12 +17,8 @@ import {
 } from "../_components/workspace";
 
 function AttemptList() {
-  const quizId = useSearchParams().get("quizId");
-  return <AttemptListContent key={quizId ?? "all"} quizId={quizId} />;
-}
-
-function AttemptListContent({ quizId }: { quizId: string | null }) {
   const session = useSession();
+  const quizId = useSearchParams().get("quizId");
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -31,16 +27,25 @@ function AttemptListContent({ quizId }: { quizId: string | null }) {
   const [revision, setRevision] = useState(0);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
+
+  // Reset when ?quizId= changes while this page stays mounted.
+  const [prevQuizId, setPrevQuizId] = useState(quizId);
+
+  if (quizId !== prevQuizId) {
+    setPrevQuizId(quizId);
+    setLoading(true);
+    setError("");
+  }
+
   useEffect(() => {
     if (!session.user) return;
     const controller = new AbortController();
-    api<Attempt[]>(
-      "/api/attempt" + (quizId ? "?quizId=" + encodeURIComponent(quizId) : ""),
-      { signal: controller.signal },
-    )
+
+    api<Attempt[]>(`/api/attempt${quizId ? `?quizId=${encodeURIComponent(quizId)}` : ""}`, {
+      signal: controller.signal,
+    })
       .then((data) => {
-        if (!Array.isArray(data))
-          throw new Error("Unexpected attempt response.");
+        if (!Array.isArray(data)) throw new Error("Unexpected attempt response.");
         if (!controller.signal.aborted) setAttempts(data);
       })
       .catch((err) => {
@@ -49,16 +54,19 @@ function AttemptListContent({ quizId }: { quizId: string | null }) {
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
+
     return () => controller.abort();
   }, [session.user, quizId, revision]);
   const instructor = session.user?.role === "instructor";
+
   const visible = attempts.filter(
     (attempt) =>
       (status === "all" || attempt.status === status) &&
-      ((attempt.quiz?.title || "") + " " + (attempt.student?.name || ""))
+      `${attempt.quiz?.title || ""} ${attempt.student?.name || ""}`
         .toLowerCase()
         .includes(search.toLowerCase().trim()),
   );
+
   async function remove(attempt: Attempt) {
     if (
       busy ||
@@ -72,8 +80,9 @@ function AttemptListContent({ quizId }: { quizId: string | null }) {
     setBusy(attempt.id);
     setError("");
     setSuccess("");
+
     try {
-      await api<void>("/api/attempt/" + attempt.id, { method: "DELETE" });
+      await api<void>(`/api/attempt/${attempt.id}`, { method: "DELETE" });
       setAttempts((items) => items.filter((item) => item.id !== attempt.id));
       setSuccess("Attempt deleted.");
     } catch (err) {
@@ -82,6 +91,7 @@ function AttemptListContent({ quizId }: { quizId: string | null }) {
       setBusy(null);
     }
   }
+
   return (
     <Workspace
       session={session}
@@ -98,13 +108,13 @@ function AttemptListContent({ quizId }: { quizId: string | null }) {
           Browse Quizzes
         </Link>
         <button
-        disabled={loading || Boolean(busy)}
-        className={secondary}
-        onClick={() => {
-          setLoading(true);
-          setError("");
-          setRevision((value) => value + 1);
-        }}
+          disabled={loading || Boolean(busy)}
+          className={secondary}
+          onClick={() => {
+            setLoading(true);
+            setError("");
+            setRevision((value) => value + 1);
+          }}
         >
           Refresh
         </button>
@@ -115,9 +125,7 @@ function AttemptListContent({ quizId }: { quizId: string | null }) {
         )}
       </div>
       {quizId && (
-        <p className="mb-5 text-sm text-stone-500">
-          Showing attempts for the selected quiz.
-        </p>
+        <p className="mb-5 text-sm text-stone-500">Showing attempts for the selected quiz.</p>
       )}
       <div className="mb-5 space-y-3">
         <Notice>{error}</Notice>
@@ -127,9 +135,7 @@ function AttemptListContent({ quizId }: { quizId: string | null }) {
         <input
           aria-label="Search attempts"
           className={input}
-          placeholder={
-            instructor ? "Search quiz or student..." : "Search quizzes..."
-          }
+          placeholder={instructor ? "Search quiz or student..." : "Search quizzes..."}
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
@@ -180,17 +186,12 @@ function AttemptListContent({ quizId }: { quizId: string | null }) {
             </thead>
             <tbody>
               {visible.map((attempt) => (
-                <tr
-                  key={attempt.id}
-                  className="border-b border-stone-100 last:border-0"
-                >
+                <tr key={attempt.id} className="border-b border-stone-100 last:border-0">
                   <td className="px-5 py-4 font-medium">
                     {attempt.quiz?.title || "Unavailable quiz"}
                   </td>
                   {instructor && (
-                    <td className="px-5 py-4">
-                      {attempt.student?.name || "Unknown student"}
-                    </td>
+                    <td className="px-5 py-4">{attempt.student?.name || "Unknown student"}</td>
                   )}
                   <td className="whitespace-nowrap px-5 py-4">
                     <Badge>
@@ -201,7 +202,7 @@ function AttemptListContent({ quizId }: { quizId: string | null }) {
                   </td>
                   <td className="whitespace-nowrap px-5 py-4">
                     {attempt.status === "graded" && attempt.score !== null
-                      ? attempt.score + " / " + attempt.maxScore
+                      ? `${attempt.score} / ${attempt.maxScore}`
                       : "—"}
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 text-stone-500">
@@ -209,10 +210,7 @@ function AttemptListContent({ quizId }: { quizId: string | null }) {
                   </td>
                   <td className="px-5 py-4">
                     <div className="flex flex-wrap gap-2">
-                      <Link
-                        className={secondary}
-                        href={"/web-page/attempts/" + attempt.id}
-                      >
+                      <Link className={secondary} href={`/web-page/attempts/${attempt.id}`}>
                         {attempt.status === "graded"
                           ? "View Result"
                           : instructor
@@ -225,11 +223,7 @@ function AttemptListContent({ quizId }: { quizId: string | null }) {
                           className={danger}
                           onClick={() => remove(attempt)}
                         >
-                          {busy === attempt.id
-                            ? "Deleting..."
-                            : instructor
-                              ? "Delete"
-                              : "Discard"}
+                          {busy === attempt.id ? "Deleting..." : instructor ? "Delete" : "Discard"}
                         </button>
                       )}
                     </div>

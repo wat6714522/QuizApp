@@ -90,3 +90,31 @@ Origin: http://evil.example
   });
 %}
 
+### Preflight: add students to a course (POST)
+# @no-cookie-jar
+OPTIONS {{host}}/api/course/{{missingId}}/student
+Origin: {{frontendOrigin}}
+Access-Control-Request-Method: POST
+Access-Control-Request-Headers: content-type
+
+> {%
+  client.test("POST allowed", () => {
+    client.assert([200, 204].includes(response.status), `got ${response.status}`);
+    const methods = response.headers.valueOf("Access-Control-Allow-Methods") ?? "";
+    client.assert(methods.includes("POST"), `Allow-Methods: ${methods}`);
+  });
+%}
+
+### Preflight: remove a student from a course (DELETE)
+# @no-cookie-jar
+OPTIONS {{host}}/api/course/{{missingId}}/student/{{missingId}}
+Origin: {{frontendOrigin}}
+Access-Control-Request-Method: DELETE
+
+> {%
+  client.test("DELETE allowed", () => {
+    client.assert([200, 204].includes(response.status), `got ${response.status}`);
+    const methods = response.headers.valueOf("Access-Control-Allow-Methods") ?? "";
+    client.assert(methods.includes("DELETE"), `Allow-Methods: ${methods}`);
+  });
+%}

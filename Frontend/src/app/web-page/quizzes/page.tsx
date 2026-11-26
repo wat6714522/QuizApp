@@ -9,6 +9,7 @@ import {
   availability,
   dateLabel,
   message,
+  type Course,
   type Quiz,
   type QuizInput,
 } from "../_lib/api";
@@ -31,6 +32,7 @@ export default function QuizzesPage() {
   const session = useSession();
   const router = useRouter();
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -38,14 +40,22 @@ export default function QuizzesPage() {
   const [busy, setBusy] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [courseFilter, setCourseFilter] = useState("all");
   const [revision, setRevision] = useState(0);
   const instructor = session.user?.role === "instructor";
+
   useEffect(() => {
     if (!session.user) return;
     const controller = new AbortController();
-    allQuizzes(controller.signal)
-      .then((items) => {
-        if (!controller.signal.aborted) setQuizzes(items);
+
+    Promise.all([
+      allQuizzes(controller.signal),
+      api<Course[]>("/api/course", { signal: controller.signal }),
+    ])
+      .then(([items, courseItems]) => {
+        if (controller.signal.aborted) return;
+        setQuizzes(items);
+        setCourses(courseItems);
       })
       .catch((err) => {
         if (!controller.signal.aborted) setError(message(err));
@@ -53,31 +63,37 @@ export default function QuizzesPage() {
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
+
     return () => controller.abort();
   }, [session.user, revision]);
+
+  function courseCode(id: string | null) {
+    return courses.find((course) => course.id === id)?.code ?? "No course";
+  }
 
   async function createQuiz(data: QuizInput) {
     const quiz = await api<Quiz>("/api/quiz", {
       method: "POST",
       body: JSON.stringify(data),
     });
-    router.push("/web-page/quizzes/" + quiz.id);
+
+    router.push(`/web-page/quizzes/${quiz.id}`);
   }
+
   async function deleteQuiz(quiz: Quiz) {
     if (
       busy ||
       !window.confirm(
-        'Delete "' +
-          quiz.title +
-          '"? All its questions and student attempts will also be deleted.',
+        `Delete "${quiz.title}"? All its questions and student attempts will also be deleted.`,
       )
     )
       return;
     setBusy(quiz.id);
     setError("");
     setSuccess("");
+
     try {
-      await api<void>("/api/quiz/" + quiz.id, { method: "DELETE" });
+      await api<void>(`/api/quiz/${quiz.id}`, { method: "DELETE" });
       setQuizzes((items) => items.filter((item) => item.id !== quiz.id));
       setSuccess("Quiz deleted.");
     } catch (err) {
@@ -86,13 +102,19 @@ export default function QuizzesPage() {
       setBusy("");
     }
   }
+
   const visible = quizzes.filter((quiz) => {
-    const matchesText = (quiz.title + " " + quiz.subject)
+    const matchesText = `${quiz.title} ${quiz.subject} ${courseCode(quiz.courseId)}`
       .toLowerCase()
       .includes(search.toLowerCase());
+
     const status = instructor ? quiz.status : availability(quiz);
-    return matchesText && (filter === "all" || status.toLowerCase() === filter);
+
+    const matchesCourse = courseFilter === "all" || quiz.courseId === courseFilter;
+
+    return matchesText && matchesCourse && (filter === "all" || status.toLowerCase() === filter);
   });
+
   return (
     <Workspace
       session={session}
@@ -100,27 +122,24 @@ export default function QuizzesPage() {
       title={instructor ? "My Quizzes" : "Available Quizzes"}
       description={
         instructor
-          ? "Create quizzes, manage questions, and publish to your classroom."
-          : "Choose a quiz to begin or continue your attempt."
+          ? "Create quizzes, manage questions, and publish to your courses."
+          : "Quizzes from the courses you are enrolled in."
       }
     >
       <div className="mb-6 flex flex-wrap gap-3">
         {instructor && (
-          <button
-            className={primary}
-            onClick={() => setCreating((value) => !value)}
-          >
+          <button className={primary} onClick={() => setCreating((value) => !value)}>
             {creating ? "Hide Form" : "New Quiz"}
           </button>
         )}
         <button
-        className={secondary}
-        disabled={loading}
-        onClick={() => {
-          setLoading(true);
-          setError("");
-          setRevision((value) => value + 1);
-        }}
+          className={secondary}
+          disabled={loading}
+          onClick={() => {
+            setLoading(true);
+            setError("");
+            setRevision((value) => value + 1);
+          }}
         >
           Refresh
         </button>
@@ -129,7 +148,7 @@ export default function QuizzesPage() {
         </Link>
       </div>
       {creating && instructor && (
-        <section className={card + " mb-6"}>
+        <section className={`${card} mb-6`}>
           <h2 className="mb-5 text-xl font-semibold">Create Quiz</h2>
           <QuizForm onSave={createQuiz} onCancel={() => setCreating(false)} />
         </section>
@@ -138,14 +157,27 @@ export default function QuizzesPage() {
         <Notice>{error}</Notice>
         <Notice good>{success}</Notice>
       </div>
-      <div className="mb-6 grid gap-3 sm:grid-cols-[1fr_200px]">
+      <div className="mb-6 grid gap-3 sm:grid-cols-[1fr_200px_200px]">
         <input
           aria-label="Search quizzes"
           className={input}
-          placeholder="Search title or subject"
+          placeholder="Search title, subject, or course"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        <select
+          aria-label="Filter by course"
+          className={input}
+          value={courseFilter}
+          onChange={(e) => setCourseFilter(e.target.value)}
+        >
+          <option value="all">All courses</option>
+          {courses.map((course) => (
+            <option key={course.id} value={course.id}>
+              {course.code}
+            </option>
+          ))}
+        </select>
         <select
           aria-label="Filter quizzes"
           className={input}
@@ -176,7 +208,7 @@ export default function QuizzesPage() {
             ? "No quizzes match your search."
             : instructor
               ? "Create your first quiz to get started."
-              : "No published quizzes are available yet."}
+              : "No quizzes are available in your courses yet."}
         </Empty>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
@@ -184,7 +216,7 @@ export default function QuizzesPage() {
             <article className={card} key={quiz.id}>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs font-medium text-orange-600">
-                  {quiz.subject}
+                  {`${courseCode(quiz.courseId)} · ${quiz.subject}`}
                 </span>
                 <Badge>{availability(quiz)}</Badge>
               </div>
@@ -194,16 +226,14 @@ export default function QuizzesPage() {
               </p>
               <div className="mt-4 space-y-1 text-xs text-stone-500">
                 <p>
-                  {quiz.timeLimitMinutes
-                    ? quiz.timeLimitMinutes + " minutes"
-                    : "No time limit"}{" "}
-                  · Passing score: {quiz.passingScore}%
+                  {quiz.timeLimitMinutes ? `${quiz.timeLimitMinutes} minutes` : "No time limit"} ·
+                  Passing score: {quiz.passingScore}%
                 </p>
                 {quiz.opensAt && <p>Opens: {dateLabel(quiz.opensAt)}</p>}
                 {quiz.closesAt && <p>Closes: {dateLabel(quiz.closesAt)}</p>}
               </div>
               <div className="mt-5 flex flex-wrap gap-3">
-                <Link className={primary} href={"/web-page/quizzes/" + quiz.id}>
+                <Link className={primary} href={`/web-page/quizzes/${quiz.id}`}>
                   {instructor ? "Manage Quiz" : "View Quiz"}
                 </Link>
                 {instructor && (

@@ -1,0 +1,65 @@
+# Deletes everything the earlier files created (and tests the delete paths).
+# Accounts are left in place; each run adds one invited instructor and one mixed-case student.
+
+### Delete quiz as student -> 403
+# @no-cookie-jar
+DELETE {{host}}/api/quiz/{{quizId}}
+Cookie: qd_session={{studentToken}}
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Delete quiz as another instructor -> 403
+# @no-cookie-jar
+DELETE {{host}}/api/quiz/{{quizId}}
+Cookie: qd_session={{otherInstructorToken}}
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Delete quiz as owner (cascades questions + attempts) -> 204
+# @no-cookie-jar
+DELETE {{host}}/api/quiz/{{quizId}}
+Cookie: qd_session={{instructorToken}}
+
+> {% client.test("204", () => client.assert(response.status === 204, `got ${response.status}`)); %}
+
+### Quiz is gone -> 404
+# @no-cookie-jar
+GET {{host}}/api/quiz/{{quizId}}
+Cookie: qd_session={{instructorToken}}
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### Its questions are gone -> 404
+# @no-cookie-jar
+GET {{host}}/api/question/{{qMcId}}
+Cookie: qd_session={{instructorToken}}
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### Its attempts are gone -> 404
+# @no-cookie-jar
+GET {{host}}/api/attempt/{{attempt2Id}}
+Cookie: qd_session={{studentToken}}
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### The course can be deleted now -> 204
+# @no-cookie-jar
+DELETE {{host}}/api/course/{{courseId}}
+Cookie: qd_session={{instructorToken}}
+
+> {% client.test("204", () => client.assert(response.status === 204, `got ${response.status}`)); %}
+
+### Course is gone -> 404
+# @no-cookie-jar
+GET {{host}}/api/course/{{courseId}}
+Cookie: qd_session={{instructorToken}}
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### Other instructor deletes their course -> 204
+# @no-cookie-jar
+DELETE {{host}}/api/course/{{otherCourseId}}
+Cookie: qd_session={{otherInstructorToken}}
+
+> {% client.test("204", () => client.assert(response.status === 204, `got ${response.status}`)); %}

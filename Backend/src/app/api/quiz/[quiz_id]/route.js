@@ -1,8 +1,10 @@
+import { ObjectId } from "mongodb";
 import { getClientPromise } from "@/app/lib/mongodb";
 import { requireAuth, requireRole } from "@/app/lib/authentication/session";
 import { parseObjectId } from "@/app/lib/params";
-import { serializeQuiz, serializeQuestion } from "@/app/lib/api";
-import { errorResponse, successResponse, printExceptionLog } from "@/app/lib/utils";
+import { serializeQuestion, serializeQuiz } from "@/app/lib/api";
+import { isEnrolled, loadOwnedCourse } from "@/app/lib/courses";
+import { errorResponse, printExceptionLog, successResponse } from "@/app/lib/utils";
 import { quizUpdateSchema } from "@/app/lib/validation/quiz";
 import corsHeaders from "@/app/lib/cors";
 
@@ -15,13 +17,15 @@ export async function GET(request, { params }) {
     if (!quizId) return errorResponse("Invalid quiz id", 400);
 
     const client = await getClientPromise();
-    const db = client.db(process.env.DB_NAME)
+    const db = client.db(process.env.DB_NAME);
 
     const quiz = await db.collection("quizzes").findOne({ _id: quizId });
-    const isOwner = quiz && quiz.ownerId.toString() === session.userId;
+    if (!quiz) return errorResponse("Quiz not found", 404);
 
-    // Non-owners only see published quizzes; say 404 so drafts aren't revealed.
-    if (!quiz || (!isOwner && quiz.status !== "published")) {
+    const isOwner = quiz.ownerId.toString() === session.userId;
+
+    // Non-owners only see published quizzes in a course they're enrolled in; 404 hides the rest.
+    if (!isOwner && (quiz.status !== "published" || !(await isEnrolled(db, session, quiz.courseId)))) {
       return errorResponse("Quiz not found", 404);
     }
 
@@ -33,10 +37,7 @@ export async function GET(request, { params }) {
       .sort({ order: 1 })
       .toArray();
 
-    return successResponse(
-      { quiz: serializeQuiz(quiz), questions: questions.map(serializeQuestion) },
-      200,
-    );
+    return successResponse({ quiz: serializeQuiz(quiz), questions: questions.map(serializeQuestion) }, 200);
   } catch (err) {
     printExceptionLog("GET /api/quiz/[quiz_id]", err);
 
@@ -75,6 +76,14 @@ export async function PUT(request, { params }) {
       return errorResponse("You can only edit your own quizzes", 403);
     }
 
+    // Moving the quiz is only allowed into a course this instructor owns.
+    if (data.courseId) {
+      const courseId = new ObjectId(data.courseId);
+      const { response: badCourse } = await loadOwnedCourse(db, courseId, session);
+      if (badCourse) return badCourse;
+      data.courseId = courseId;
+    }
+
     // Check the date window using the values after this update.
     const opensAt = data.opensAt !== undefined ? data.opensAt : quiz.opensAt;
     const closesAt = data.closesAt !== undefined ? data.closesAt : quiz.closesAt;
@@ -88,11 +97,7 @@ export async function PUT(request, { params }) {
       if (count === 0) return errorResponse("Add at least one question before publishing", 409);
     }
 
-    const updated = await quizzes.findOneAndUpdate(
-      { _id: quizId },
-      { $set: { ...data, updatedAt: new Date() } },
-      { returnDocument: "after" },
-    );
+    const updated = await quizzes.findOneAndUpdate({ _id: quizId }, { $set: { ...data, updatedAt: new Date() } }, { returnDocument: "after" });
 
     return successResponse(serializeQuiz(updated), 200);
   } catch (err) {

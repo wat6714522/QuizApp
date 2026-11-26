@@ -10,7 +10,7 @@ import {
 import { errorResponse, successResponse, printExceptionLog } from "@/app/lib/utils";
 
 const createInvitationSchema = z.object({
-  email: z.string().trim().email("Invalid email address.").max(254),
+  email: z.string().trim().toLowerCase().email("Invalid email address.").max(254),
 }).strict();
 
 function noStore(response) {

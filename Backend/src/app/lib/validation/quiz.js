@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { objectIdString } from "@/app/lib/validation/common";
 
 export const QUIZ_STATUSES = ["draft", "published", "closed"];
 
+const courseId = objectIdString;
 const title = z.string().trim().min(1, "Title is required").max(120);
 const description = z.string().trim().max(1000);
 const subject = z.string().trim().min(1, "Subject is required").max(120);
@@ -11,6 +13,7 @@ const date = z.coerce.date(); // accepts ISO strings from JSON
 
 export const quizCreateSchema = z
   .object({
+    courseId,
     title,
     description: description.default(""),
     subject,
@@ -28,6 +31,7 @@ export const quizCreateSchema = z
 /** @type {import('zod').ZodTypeAny} */
 export const quizUpdateSchema = z
   .object({
+    courseId,
     title,
     description,
     subject,

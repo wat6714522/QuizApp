@@ -4,9 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
-const API_URL = (
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"
-).replace(/\/$/, "");
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000").replace(/\/$/, "");
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -27,11 +25,13 @@ export default function RegisterPage() {
 
     if (!name.trim()) {
       setError("Please enter your name.");
+
       return;
     }
 
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
+
       return;
     }
 
@@ -52,15 +52,10 @@ export default function RegisterPage() {
       const data = await response.json().catch(() => null);
 
       if (!response.ok) {
-        throw new Error(
-          data?.error?.message || "Unable to create your account.",
-        );
+        throw new Error(data?.error?.message || "Unable to create your account.");
       }
 
-      if (
-        typeof data?.user?.id !== "string" ||
-        data?.user?.role !== "student"
-      ) {
+      if (typeof data?.user?.id !== "string" || data?.user?.role !== "student") {
         throw new Error("Unexpected response. Please try signing in.");
       }
 
@@ -247,19 +242,13 @@ export default function RegisterPage() {
               </div>
 
               {error && (
-                <p
-                  role="alert"
-                  className="rounded-2xl bg-red-50 p-3 text-sm text-red-700"
-                >
+                <p role="alert" className="rounded-2xl bg-red-50 p-3 text-sm text-red-700">
                   {error}
                 </p>
               )}
 
               {success && (
-                <p
-                  role="status"
-                  className="rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-700"
-                >
+                <p role="status" className="rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-700">
                   {success}
                 </p>
               )}
@@ -269,20 +258,13 @@ export default function RegisterPage() {
                 disabled={disabled}
                 className="w-full rounded-full bg-gradient-to-b from-[#ff5a00] via-[#ff4a24] to-[#e44984] px-6 py-4 text-sm font-medium text-white transition hover:brightness-105 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-orange-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading
-                  ? "Creating account..."
-                  : success
-                    ? "Account Created"
-                    : "Create Account"}
+                {loading ? "Creating account..." : success ? "Account Created" : "Create Account"}
               </button>
             </form>
 
             <p className="mt-6 text-center text-sm text-stone-500">
               Already have an account?{" "}
-              <Link
-                href="/web-page/login"
-                className="font-medium text-orange-600 hover:underline"
-              >
+              <Link href="/web-page/login" className="font-medium text-orange-600 hover:underline">
                 Sign In
               </Link>
             </p>

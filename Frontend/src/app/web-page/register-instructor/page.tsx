@@ -78,11 +78,13 @@ function RegisterInstructorForm({ token }: { token: string }) {
 
     if (!name.trim()) {
       setError("Please enter your name.");
+
       return;
     }
 
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
+
       return;
     }
 
@@ -103,10 +105,7 @@ function RegisterInstructorForm({ token }: { token: string }) {
         },
       );
 
-      if (
-        typeof data?.user?.id !== "string" ||
-        data.user.role !== "instructor"
-      ) {
+      if (typeof data?.user?.id !== "string" || data.user.role !== "instructor") {
         throw new Error("Unexpected response. Please try signing in.");
       }
 
@@ -114,9 +113,8 @@ function RegisterInstructorForm({ token }: { token: string }) {
       setConfirmPassword("");
 
       if (data.requiresLogin) {
-        setSuccess(
-          "Your instructor account was created. Please use Sign In below to continue.",
-        );
+        setSuccess("Your instructor account was created. Please use Sign In below to continue.");
+
         return;
       }
 
@@ -174,8 +172,7 @@ function RegisterInstructorForm({ token }: { token: string }) {
           </h1>
 
           <p className="mx-auto mt-8 max-w-xs text-center text-sm leading-7 text-stone-400">
-            Create classroom quizzes, manage questions, and follow your
-            students’ progress.
+            Create classroom quizzes, manage questions, and follow your students’ progress.
           </p>
         </section>
 
@@ -212,18 +209,12 @@ function RegisterInstructorForm({ token }: { token: string }) {
             </p>
 
             {checking ? (
-              <p
-                role="status"
-                className="rounded-2xl bg-stone-50 p-4 text-sm text-stone-600"
-              >
+              <p role="status" className="rounded-2xl bg-stone-50 p-4 text-sm text-stone-600">
                 Checking your invitation...
               </p>
             ) : !invitation ? (
               <div>
-                <p
-                  role="alert"
-                  className="rounded-2xl bg-red-50 p-4 text-sm text-red-700"
-                >
+                <p role="alert" className="rounded-2xl bg-red-50 p-4 text-sm text-red-700">
                   {invitationProblem || "Unable to load your invitation."}
                 </p>
 
@@ -272,12 +263,9 @@ function RegisterInstructorForm({ token }: { token: string }) {
                     readOnly
                     value={invitation.email}
                     aria-describedby="invitation-help"
-                    className={inputClass + " bg-stone-50"}
+                    className={`${inputClass} bg-stone-50`}
                   />
-                  <p
-                    id="invitation-help"
-                    className="mt-2 px-2 text-xs leading-5 text-stone-500"
-                  >
+                  <p id="invitation-help" className="mt-2 px-2 text-xs leading-5 text-stone-500">
                     This invitation is for the email above. Expires:{" "}
                     {new Date(invitation.expiresAt).toLocaleString("en-GB")}.
                   </p>
@@ -329,9 +317,7 @@ function RegisterInstructorForm({ token }: { token: string }) {
                     <input
                       type="checkbox"
                       checked={showPassword}
-                      onChange={(event) =>
-                        setShowPassword(event.target.checked)
-                      }
+                      onChange={(event) => setShowPassword(event.target.checked)}
                       disabled={disabled}
                       className="accent-orange-500"
                     />
@@ -340,10 +326,7 @@ function RegisterInstructorForm({ token }: { token: string }) {
                 </div>
 
                 {error && (
-                  <p
-                    role="alert"
-                    className="rounded-2xl bg-red-50 p-3 text-sm text-red-700"
-                  >
+                  <p role="alert" className="rounded-2xl bg-red-50 p-3 text-sm text-red-700">
                     {error}
                   </p>
                 )}
@@ -373,10 +356,7 @@ function RegisterInstructorForm({ token }: { token: string }) {
 
             <p className="mt-6 text-center text-sm text-stone-500">
               Already have an account?{" "}
-              <Link
-                href="/web-page/login"
-                className="font-medium text-orange-600 hover:underline"
-              >
+              <Link href="/web-page/login" className="font-medium text-orange-600 hover:underline">
                 Sign In
               </Link>
             </p>

@@ -1,13 +1,16 @@
 import { z } from "zod";
 
+// Emails are always stored and compared in lowercase.
+const email = z.string().trim().toLowerCase().email("Invalid Email Address");
+
 export const registerSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(100),
-  email: z.string().trim().email("Invalid Email Address"),
+  email,
   password: z.string().min(10, "Password is required"),
 });
 
 export const loginSchema = z.object({
-  email: z.string().email("Invalid Email Address"),
+  email,
   password: z.string().min(10, "Password is required"),
 });
 

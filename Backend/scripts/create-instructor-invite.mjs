@@ -5,7 +5,7 @@ import { z } from "zod";
 let client;
 
 try {
-  const parsed = z.string().trim().email().safeParse(process.argv[2]);
+  const parsed = z.string().trim().toLowerCase().email().safeParse(process.argv[2]);
 
   if (!parsed.success) throw new Error("Provide a valid instructor email.");
 
