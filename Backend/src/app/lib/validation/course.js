@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { objectIdString } from "@/app/lib/validation/common";
 
 const code = z.string().trim().toUpperCase().min(7, "Please enter a valid course code").max(20, "Course code is too long");
 const name = z.string().trim().min(10, "Please enter a valid course name").max(120, "Course name is too long");
@@ -15,6 +16,7 @@ export const courseUpdateSchema = z
 // Teachers add students by email; the route resolves them to user ids.
 export const addStudentSchema = z
   .object({
+    courseId: objectIdString,
     students: z
       .array(student)
       .min(1, "Enter at least one student")

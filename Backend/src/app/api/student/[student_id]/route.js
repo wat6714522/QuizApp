@@ -4,17 +4,17 @@ import { parseObjectId } from "@/app/lib/params";
 import { loadOwnedCourse, loadRoster } from "@/app/lib/courses";
 import { errorResponse, printExceptionLog, successResponse } from "@/app/lib/utils";
 
-// DELETE — remove one student from the course
+// DELETE /api/student/:student_id?courseId=... — remove one student from a course
 export async function DELETE(request, { params }) {
   try {
     const { session, response } = await requireRole("instructor");
     if (response) return response;
 
-    const courseId = await parseObjectId(params, "course_id");
-    if (!courseId) return errorResponse("Invalid course id", 400);
-
     const studentId = await parseObjectId(params, "student_id");
     if (!studentId) return errorResponse("Invalid student id", 400);
+
+    const courseId = await parseObjectId({ courseId: request.nextUrl.searchParams.get("courseId") }, "courseId");
+    if (!courseId) return errorResponse("Invalid or missing courseId", 400);
 
     const client = await getClientPromise();
     const db = client.db(process.env.DB_NAME);
@@ -36,7 +36,7 @@ export async function DELETE(request, { params }) {
 
     return successResponse({ students: await loadRoster(db, updated.studentIds ?? []) }, 200);
   } catch (err) {
-    printExceptionLog("DELETE /api/course/[course_id]/student/[student_id]", err);
+    printExceptionLog("DELETE /api/student/[student_id]", err);
 
     return errorResponse("Internal Server Error", 500);
   }

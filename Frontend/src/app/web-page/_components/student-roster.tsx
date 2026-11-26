@@ -18,7 +18,7 @@ export function StudentRoster({ courseId, initial }: { courseId: string; initial
     setError("");
 
     try {
-      const data = await api<{ students: Student[] }>(`/api/student/${courseId}`, {
+      const data = await api<{ students: Student[] }>(`/api/student/`, {
         method: "POST",
         body: JSON.stringify({ students: emails }),
       });
@@ -40,7 +40,7 @@ export function StudentRoster({ courseId, initial }: { courseId: string; initial
 
     try {
       const data = await api<{ students: Student[] }>(
-        `/api/course/${courseId}/student/${student.id}`,
+        `/api/student/${student.id}?courseId=${courseId}`,
         { method: "DELETE" },
       );
 

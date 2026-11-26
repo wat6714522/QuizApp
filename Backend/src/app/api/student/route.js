@@ -1,18 +1,15 @@
+import { ObjectId } from "mongodb";
 import { getClientPromise } from "@/app/lib/mongodb";
 import { requireRole } from "@/app/lib/authentication/session";
-import { parseObjectId } from "@/app/lib/params";
 import { loadOwnedCourse, loadRoster } from "@/app/lib/courses";
 import { errorResponse, printExceptionLog, successResponse } from "@/app/lib/utils";
 import { addStudentSchema } from "@/app/lib/validation/course";
 
-// POST { students: ["a@x.com", ...] } — enroll students by email; stores their user ids
-export async function POST(request, { params }) {
+// POST { courseId, students: ["a@x.com", ...] } — enroll students by email; stores their user ids
+export async function POST(request) {
   try {
     const { session, response } = await requireRole("instructor");
     if (response) return response;
-
-    const courseId = await parseObjectId(params, "course_id");
-    if (!courseId) return errorResponse("Invalid course id", 400);
 
     let body;
 
@@ -24,7 +21,8 @@ export async function POST(request, { params }) {
 
     const parsed = addStudentSchema.safeParse(body);
     if (!parsed.success) return errorResponse(parsed.error.issues[0].message, 400);
-    const { students: emails } = parsed.data;
+    const courseId = new ObjectId(parsed.data.courseId);
+    const emails = parsed.data.students;
 
     const client = await getClientPromise();
     const db = client.db(process.env.DB_NAME);
@@ -58,7 +56,7 @@ export async function POST(request, { params }) {
 
     return successResponse({ students: await loadRoster(db, updated.studentIds) }, 200);
   } catch (err) {
-    printExceptionLog("POST /api/course/[course_id]/student", err);
+    printExceptionLog("POST /api/student", err);
 
     return errorResponse("Internal Server Error", 500);
   }
