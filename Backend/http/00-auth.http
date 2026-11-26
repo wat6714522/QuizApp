@@ -1,4 +1,11 @@
-### Register instructor (then promote by hand — see note below)
+# Run order: 00-auth -> 01-course -> 02-quiz -> 03-question -> 04-attempt -> 05-cors -> 06-cleanup
+# Each file saves ids/tokens with client.global for the next one.
+#
+# One-time setup: run this file once, then promote the instructor and let them invite:
+#   db.users.updateOne({ email: "instructor@quizdeck.test" },
+#     { $set: { role: "instructor", canInviteInstructors: true }, $inc: { tokenVersion: 1 } })
+
+### Register instructor (promote once by hand — see top of file)
 # @no-cookie-jar
 POST {{host}}/api/authentication/register
 Content-Type: application/json
@@ -10,19 +17,29 @@ Content-Type: application/json
     client.assert([201, 409].includes(response.status), `got ${response.status}`);
   });
   if (response.status === 201) client.test("no password in response", () => {
-    client.assert(!JSON.stringify(response.body).includes("password"), "leaks password/passwordHash");
+    client.assert(!JSON.stringify(response.body).includes("password"), "leaks password hash");
   });
 %}
 
-
 ### Register student
-# One-time promote (register never accepts a role):
-# mongosh quizdeck --eval 'db.users.updateOne({email:"instructor@quizdeck.test"},{$set:{role:"instructor"},$inc:{tokenVersion:1}})'
 # @no-cookie-jar
 POST {{host}}/api/authentication/register
 Content-Type: application/json
 
 { "name": "Test Student", "email": "{{studentEmail}}", "password": "{{password}}" }
+
+> {%
+  client.test("201 new or 409 already registered", () => {
+    client.assert([201, 409].includes(response.status), `got ${response.status}`);
+  });
+%}
+
+### Register outsider student (never kept in the test course)
+# @no-cookie-jar
+POST {{host}}/api/authentication/register
+Content-Type: application/json
+
+{ "name": "Outsider Student", "email": "{{outsiderEmail}}", "password": "{{password}}" }
 
 > {%
   client.test("201 new or 409 already registered", () => {
@@ -41,10 +58,49 @@ Content-Type: application/json
   client.test("201 and role forced to student (or role rejected with 400)", () => {
     if (response.status === 400) return;
     client.assert(response.status === 201, `got ${response.status}`);
-    const u = response.body.user ?? response.body;
-    client.assert(u.role === "student", `role was ${u.role}`);
+    client.assert(response.body.user.role === "student", `role was ${response.body.user.role}`);
   });
 %}
+
+### Register with a mixed-case email -> stored lowercase
+# @no-cookie-jar
+POST {{host}}/api/authentication/register
+Content-Type: application/json
+
+{ "name": "Mixed Case", "email": "Mixed.{{$uuid}}@QuizDeck.TEST", "password": "{{password}}" }
+
+> {%
+  client.test("201 and email lowercased", () => {
+    client.assert(response.status === 201, `got ${response.status}`);
+    const email = response.body.user.email;
+    client.assert(email === email.toLowerCase(), `stored as ${email}`);
+    client.global.set("mixedEmail", email);
+    client.global.set("mixedEmailUpper", email.toUpperCase());
+  });
+%}
+
+### Login with the upper-case version of that email -> 200
+# @no-cookie-jar
+POST {{host}}/api/authentication/login
+Content-Type: application/json
+
+{ "email": "{{mixedEmailUpper}}", "password": "{{password}}" }
+
+> {%
+  client.test("200 — login is case-insensitive", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    client.assert(response.body.user.email === client.global.get("mixedEmail"), "different account");
+  });
+%}
+
+### Register the same email in different case -> 409
+# @no-cookie-jar
+POST {{host}}/api/authentication/register
+Content-Type: application/json
+
+{ "name": "Case Dup", "email": "{{mixedEmailUpper}}", "password": "{{password}}" }
+
+> {% client.test("409", () => client.assert(response.status === 409, `got ${response.status}`)); %}
 
 ### Register duplicate email -> 409
 # @no-cookie-jar
@@ -54,7 +110,7 @@ Content-Type: application/json
 { "name": "Dup", "email": "{{studentEmail}}", "password": "{{password}}" }
 
 > {%
-  client.test("409 EMAIL_TAKEN", () => {
+  client.test("409 with error envelope", () => {
     client.assert(response.status === 409, `got ${response.status} — is the unique index on users.email created?`);
     client.assert(response.body.error?.code, "missing error.code");
   });
@@ -130,8 +186,7 @@ Content-Type: application/json
     client.assert(response.status === 200, `got ${response.status}`);
     const sc = response.headers.valueOf("Set-Cookie") ?? "";
     client.assert(/qd_session=/.test(sc) && /HttpOnly/i.test(sc), `bad Set-Cookie: ${sc}`);
-    const u = response.body.user ?? response.body;
-    client.assert(u.role === "instructor", "not promoted — run the mongosh command in this file");
+    client.assert(response.body.user.role === "instructor", "not promoted — run the mongosh command at the top of this file");
     client.assert(!JSON.stringify(response.body).includes("password"), "leaks password hash");
     client.global.set("instructorToken", /qd_session=([^;]+)/.exec(sc)[1]);
   });
@@ -149,6 +204,21 @@ Content-Type: application/json
     client.assert(response.status === 200, `got ${response.status}`);
     const sc = response.headers.valueOf("Set-Cookie") ?? "";
     client.global.set("studentToken", /qd_session=([^;]+)/.exec(sc)[1]);
+  });
+%}
+
+### Login outsider
+# @no-cookie-jar
+POST {{host}}/api/authentication/login
+Content-Type: application/json
+
+{ "email": "{{outsiderEmail}}", "password": "{{password}}" }
+
+> {%
+  client.test("200 and cookie", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    const sc = response.headers.valueOf("Set-Cookie") ?? "";
+    client.global.set("outsiderToken", /qd_session=([^;]+)/.exec(sc)[1]);
   });
 %}
 
@@ -176,10 +246,11 @@ GET {{host}}/api/me
 Cookie: qd_session={{instructorToken}}
 
 > {%
-  client.test("200, instructor", () => {
+  client.test("200, instructor who can invite", () => {
     client.assert(response.status === 200, `got ${response.status}`);
-    const u = response.body.user ?? response.body;
+    const u = response.body.user;
     client.assert(u.role === "instructor", `role ${u.role}`);
+    client.assert(u.canInviteInstructors === true, "set canInviteInstructors — see top of file");
     client.assert(!JSON.stringify(response.body).includes("password"), "leaks password hash");
     client.global.set("instructorId", u.id);
   });
@@ -193,9 +264,157 @@ Cookie: qd_session={{studentToken}}
 > {%
   client.test("200, student", () => {
     client.assert(response.status === 200, `got ${response.status}`);
-    const u = response.body.user ?? response.body;
-    client.assert(u.role === "student", `role ${u.role}`);
-    client.global.set("studentId", u.id);
+    client.assert(response.body.user.role === "student", `role ${response.body.user.role}`);
+    client.global.set("studentId", response.body.user.id);
+  });
+%}
+
+### Me as outsider
+# @no-cookie-jar
+GET {{host}}/api/me
+Cookie: qd_session={{outsiderToken}}
+
+> {%
+  client.test("200, student", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    client.global.set("outsiderId", response.body.user.id);
+  });
+%}
+
+### Create instructor invitation as student -> 403
+# @no-cookie-jar
+POST {{host}}/api/authentication/invitations
+Cookie: qd_session={{studentToken}}
+Content-Type: application/json
+
+{ "email": "nope-{{$uuid}}@quizdeck.test" }
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Create invitation with wrong Content-Type -> 415
+# @no-cookie-jar
+POST {{host}}/api/authentication/invitations
+Cookie: qd_session={{instructorToken}}
+Content-Type: text/plain
+
+{ "email": "plain-{{$uuid}}@quizdeck.test" }
+
+> {% client.test("415", () => client.assert(response.status === 415, `got ${response.status}`)); %}
+
+### Create invitation for an email that already has an account -> 409
+# @no-cookie-jar
+POST {{host}}/api/authentication/invitations
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "email": "{{studentEmail}}" }
+
+> {% client.test("409", () => client.assert(response.status === 409, `got ${response.status}`)); %}
+
+### Create invitation (valid, mixed-case email) -> 201
+# @no-cookie-jar
+POST {{host}}/api/authentication/invitations
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "email": "Instructor2.{{$uuid}}@QuizDeck.test" }
+
+> {%
+  client.test("201, lowercase email, 64-hex token", () => {
+    client.assert(response.status === 201, `got ${response.status}`);
+    const email = response.body.invitation.email;
+    client.assert(email === email.toLowerCase(), `invitation stored ${email}`);
+    client.assert(/^[a-f0-9]{64}$/.test(response.body.token), "bad token");
+    client.global.set("inviteEmail", email);
+    client.global.set("inviteToken", response.body.token);
+  });
+%}
+
+### Look up invitation by token -> 200
+# @no-cookie-jar
+GET {{host}}/api/authentication/invitation?token={{inviteToken}}
+
+> {%
+  client.test("200 with the invited email", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    client.assert(response.body.invitation.email === client.global.get("inviteEmail"), "wrong email");
+  });
+%}
+
+### Look up invitation with malformed token -> 400
+# @no-cookie-jar
+GET {{host}}/api/authentication/invitation?token=abc
+
+> {% client.test("400", () => client.assert(response.status === 400, `got ${response.status}`)); %}
+
+### Look up unknown token -> 404
+# @no-cookie-jar
+GET {{host}}/api/authentication/invitation?token=0000000000000000000000000000000000000000000000000000000000000000
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### Register instructor with a different email -> 400 EMAIL_MISMATCH
+# @no-cookie-jar
+POST {{host}}/api/authentication/register-instructor
+Content-Type: application/json
+
+{ "name": "Wrong Email", "email": "someone-else-{{$uuid}}@quizdeck.test", "password": "{{password}}", "token": "{{inviteToken}}" }
+
+> {%
+  client.test("400 EMAIL_MISMATCH", () => {
+    client.assert(response.status === 400, `got ${response.status}`);
+    client.assert(response.body.error?.code === "EMAIL_MISMATCH", `code ${JSON.stringify(response.body.error?.code)}`);
+  });
+%}
+
+### Register instructor with the invitation -> 201
+# @no-cookie-jar
+POST {{host}}/api/authentication/register-instructor
+Content-Type: application/json
+
+{ "name": "Other Instructor", "email": "{{inviteEmail}}", "password": "{{password}}", "token": "{{inviteToken}}" }
+
+> {%
+  client.test("201, instructor, session cookie", () => {
+    client.assert(response.status === 201, `got ${response.status}`);
+    client.assert(response.body.user.role === "instructor", `role ${response.body.user.role}`);
+    const sc = response.headers.valueOf("Set-Cookie") ?? "";
+    client.assert(/qd_session=/.test(sc), "no session cookie");
+    client.global.set("otherInstructorToken", /qd_session=([^;]+)/.exec(sc)[1]);
+    client.global.set("otherInstructorId", response.body.user.id);
+  });
+%}
+
+### Reuse the invitation -> 410
+# @no-cookie-jar
+POST {{host}}/api/authentication/register-instructor
+Content-Type: application/json
+
+{ "name": "Again", "email": "{{inviteEmail}}", "password": "{{password}}", "token": "{{inviteToken}}" }
+
+> {%
+  client.test("410 INVITATION_USED", () => {
+    client.assert(response.status === 410, `got ${response.status}`);
+    client.assert(response.body.error?.code === "INVITATION_USED", `code ${JSON.stringify(response.body.error?.code)}`);
+  });
+%}
+
+### Look up the used invitation -> 410
+# @no-cookie-jar
+GET {{host}}/api/authentication/invitation?token={{inviteToken}}
+
+> {% client.test("410", () => client.assert(response.status === 410, `got ${response.status}`)); %}
+
+### Invited instructor cannot invite others
+# @no-cookie-jar
+GET {{host}}/api/me
+Cookie: qd_session={{otherInstructorToken}}
+
+> {%
+  client.test("instructor without invite permission", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    client.assert(response.body.user.role === "instructor", "not an instructor");
+    client.assert(response.body.user.canInviteInstructors === false, "should not be able to invite");
   });
 %}
 

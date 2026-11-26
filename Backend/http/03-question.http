@@ -213,3 +213,30 @@ GET {{host}}/api/question/{{qTmpId}}
 Cookie: qd_session={{instructorToken}}
 
 > {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### Add question as another instructor -> 403
+# @no-cookie-jar
+POST {{host}}/api/question?quizId={{quizId}}
+Cookie: qd_session={{otherInstructorToken}}
+Content-Type: application/json
+
+{ "type": "short_answer", "prompt": "x", "correctAnswer": "x" }
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Update question as another instructor -> 403
+# @no-cookie-jar
+PUT {{host}}/api/question/{{qMcId}}
+Cookie: qd_session={{otherInstructorToken}}
+Content-Type: application/json
+
+{ "correctAnswer": "a" }
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Another instructor can't read a draft quiz's questions -> 404
+# @no-cookie-jar
+GET {{host}}/api/question?quizId={{quizId}}
+Cookie: qd_session={{otherInstructorToken}}
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}

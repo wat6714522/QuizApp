@@ -1,0 +1,468 @@
+# Needs: instructorToken, otherInstructorToken, studentToken, outsiderToken, studentId, outsiderId (from 00-auth)
+# Course rules: code 7-20 chars (trimmed + uppercased), name 10-120 chars, up to 40 students per request.
+
+### Create course unauthenticated -> 401
+# @no-cookie-jar
+POST {{host}}/api/course
+Content-Type: application/json
+
+{ "code": "CSX4107", "name": "Unauthenticated course" }
+
+> {% client.test("401", () => client.assert(response.status === 401, `got ${response.status}`)); %}
+
+### Create course as student -> 403
+# @no-cookie-jar
+POST {{host}}/api/course
+Cookie: qd_session={{studentToken}}
+Content-Type: application/json
+
+{ "code": "CSX4107", "name": "Student made course" }
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Create course without name -> 400
+# @no-cookie-jar
+POST {{host}}/api/course
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "code": "CSX4107" }
+
+> {% client.test("400", () => client.assert(response.status === 400, `got ${response.status}`)); %}
+
+### Create course with a code that is too short after trimming -> 400
+# @no-cookie-jar
+POST {{host}}/api/course
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "code": "  CS1  ", "name": "Short code course" }
+
+> {% client.test("400", () => client.assert(response.status === 400, `got ${response.status}`)); %}
+
+### Create course with a name that is too short -> 400
+# @no-cookie-jar
+POST {{host}}/api/course
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "code": "CSX4107", "name": "Web" }
+
+> {% client.test("400", () => client.assert(response.status === 400, `got ${response.status}`)); %}
+
+### Create course (valid) -> 201, code trimmed + uppercased
+# @no-cookie-jar
+POST {{host}}/api/course
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "code": "  http{{$timestamp}} ", "name": "HTTP Test Course" }
+
+> {%
+  client.test("201, normalized code, owned by caller, empty roster", () => {
+    client.assert(response.status === 201, `got ${response.status}`);
+    const c = response.body;
+    client.assert(/^HTTP\d+$/.test(c.code), `code was "${c.code}"`);
+    client.assert(c.ownerId === client.global.get("instructorId"), "ownerId is not the caller");
+    client.assert(c.studentCount === 0 && Array.isArray(c.students) && c.students.length === 0, JSON.stringify(c));
+    client.assert(c.studentIds === undefined, "raw studentIds leaked");
+    client.global.set("courseId", c.id);
+    client.global.set("courseCode", c.code);
+    client.global.set("courseCodeLower", c.code.toLowerCase());
+  });
+%}
+
+### Same code in a different case -> 409
+# @no-cookie-jar
+POST {{host}}/api/course
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "code": "{{courseCodeLower}}", "name": "Duplicate code course" }
+
+> {% client.test("409", () => client.assert(response.status === 409, `got ${response.status}`)); %}
+
+### Another instructor can use the same code -> 201
+# @no-cookie-jar
+POST {{host}}/api/course
+Cookie: qd_session={{otherInstructorToken}}
+Content-Type: application/json
+
+{ "code": "{{courseCode}}", "name": "Other instructor's section" }
+
+> {%
+  client.test("201", () => {
+    client.assert(response.status === 201, `got ${response.status}`);
+    client.global.set("otherCourseId", response.body.id);
+  });
+%}
+
+### Create a throwaway course
+# @no-cookie-jar
+POST {{host}}/api/course
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "code": "TMP{{$timestamp}}", "name": "Throwaway test course" }
+
+> {%
+  client.test("201", () => {
+    client.assert(response.status === 201, `got ${response.status}`);
+    client.global.set("tmpCourseId", response.body.id);
+  });
+%}
+
+### Delete someone else's course -> 403
+# @no-cookie-jar
+DELETE {{host}}/api/course/{{tmpCourseId}}
+Cookie: qd_session={{otherInstructorToken}}
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Delete empty course as owner -> 204
+# @no-cookie-jar
+DELETE {{host}}/api/course/{{tmpCourseId}}
+Cookie: qd_session={{instructorToken}}
+
+> {% client.test("204", () => client.assert(response.status === 204, `got ${response.status}`)); %}
+
+### Deleted course is gone -> 404
+# @no-cookie-jar
+GET {{host}}/api/course/{{tmpCourseId}}
+Cookie: qd_session={{instructorToken}}
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### List courses as instructor -> own courses only, no roster in the list
+# @no-cookie-jar
+GET {{host}}/api/course
+Cookie: qd_session={{instructorToken}}
+
+> {%
+  client.test("200, contains own course, not the other instructor's", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    const ids = response.body.map((c) => c.id);
+    client.assert(ids.includes(client.global.get("courseId")), "own course missing");
+    client.assert(!ids.includes(client.global.get("otherCourseId")), "other instructor's course leaked");
+    client.assert(response.body.every((c) => c.students === undefined), "roster should not be in the list");
+  });
+%}
+
+### List courses as student (not enrolled yet) -> course not listed
+# @no-cookie-jar
+GET {{host}}/api/course
+Cookie: qd_session={{studentToken}}
+
+> {%
+  client.test("200 and course not visible", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    client.assert(!response.body.some((c) => c.id === client.global.get("courseId")), "course leaked");
+  });
+%}
+
+### Get course as owner -> empty roster
+# @no-cookie-jar
+GET {{host}}/api/course/{{courseId}}
+Cookie: qd_session={{instructorToken}}
+
+> {%
+  client.test("200 with students []", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    client.assert(Array.isArray(response.body.students) && response.body.students.length === 0, "roster not empty");
+  });
+%}
+
+### Get course as student not enrolled -> 404
+# @no-cookie-jar
+GET {{host}}/api/course/{{courseId}}
+Cookie: qd_session={{studentToken}}
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### Get course as another instructor -> 404
+# @no-cookie-jar
+GET {{host}}/api/course/{{courseId}}
+Cookie: qd_session={{otherInstructorToken}}
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### Get course with malformed id -> 400
+# @no-cookie-jar
+GET {{host}}/api/course/not-an-id
+Cookie: qd_session={{instructorToken}}
+
+> {% client.test("400", () => client.assert(response.status === 400, `got ${response.status}`)); %}
+
+### Get missing course -> 404
+# @no-cookie-jar
+GET {{host}}/api/course/{{missingId}}
+Cookie: qd_session={{instructorToken}}
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### Rename course as owner -> 200
+# @no-cookie-jar
+PUT {{host}}/api/course/{{courseId}}
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "name": "HTTP Test Course (renamed)" }
+
+> {%
+  client.test("200, name changed, code kept", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    client.assert(response.body.name === "HTTP Test Course (renamed)", "name not changed");
+    client.assert(response.body.code === client.global.get("courseCode"), "code changed");
+  });
+%}
+
+### Update course with no fields -> 400
+# @no-cookie-jar
+PUT {{host}}/api/course/{{courseId}}
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{}
+
+> {% client.test("400", () => client.assert(response.status === 400, `got ${response.status}`)); %}
+
+### Update course as another instructor -> 403
+# @no-cookie-jar
+PUT {{host}}/api/course/{{courseId}}
+Cookie: qd_session={{otherInstructorToken}}
+Content-Type: application/json
+
+{ "name": "Hijacked course name" }
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Update course as student -> 403
+# @no-cookie-jar
+PUT {{host}}/api/course/{{courseId}}
+Cookie: qd_session={{studentToken}}
+Content-Type: application/json
+
+{ "name": "Hijacked course name" }
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Add students as student -> 403
+# @no-cookie-jar
+POST {{host}}/api/course/{{courseId}}/student
+Cookie: qd_session={{studentToken}}
+Content-Type: application/json
+
+{ "students": ["{{studentEmail}}"] }
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Add students as another instructor -> 403
+# @no-cookie-jar
+POST {{host}}/api/course/{{courseId}}/student
+Cookie: qd_session={{otherInstructorToken}}
+Content-Type: application/json
+
+{ "students": ["{{studentEmail}}"] }
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Add students with an empty list -> 400
+# @no-cookie-jar
+POST {{host}}/api/course/{{courseId}}/student
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "students": [] }
+
+> {% client.test("400", () => client.assert(response.status === 400, `got ${response.status}`)); %}
+
+### Add students with an invalid email -> 400
+# @no-cookie-jar
+POST {{host}}/api/course/{{courseId}}/student
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "students": ["not-an-email"] }
+
+> {% client.test("400", () => client.assert(response.status === 400, `got ${response.status}`)); %}
+
+### Add students to a missing course -> 404
+# @no-cookie-jar
+POST {{host}}/api/course/{{missingId}}/student
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "students": ["{{studentEmail}}"] }
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### One unknown email -> 404 naming it, and nobody is added
+# @no-cookie-jar
+POST {{host}}/api/course/{{courseId}}/student
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "students": ["{{studentEmail}}", "ghost-{{$uuid}}@quizdeck.test"] }
+
+> {%
+  client.test("404 and the message names the missing email", () => {
+    client.assert(response.status === 404, `got ${response.status}`);
+    client.assert(/ghost-/.test(response.body.error?.message ?? ""), response.body.error?.message);
+  });
+%}
+
+### The failed add changed nothing
+# @no-cookie-jar
+GET {{host}}/api/course/{{courseId}}
+Cookie: qd_session={{instructorToken}}
+
+> {%
+  client.test("roster still empty", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    client.assert(response.body.students.length === 0, "student was added despite the error");
+  });
+%}
+
+### An instructor's email is rejected -> 404
+# @no-cookie-jar
+POST {{host}}/api/course/{{courseId}}/student
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "students": ["{{instructorEmail}}"] }
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### Add student using an upper-case email -> 200, stored by id
+# @no-cookie-jar
+POST {{host}}/api/course/{{courseId}}/student
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "students": ["{{studentEmailUpper}}"] }
+
+> {%
+  client.test("200 and roster has { id, name, email } for the student", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    const s = response.body.students.find((x) => x.id === client.global.get("studentId"));
+    client.assert(s, "student not in roster");
+    client.assert(s.email === request.environment.get("studentEmail") && s.name, JSON.stringify(s));
+  });
+%}
+
+### Adding the same student again doesn't duplicate
+# @no-cookie-jar
+POST {{host}}/api/course/{{courseId}}/student
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "students": ["{{studentEmail}}", "{{studentEmail}}"] }
+
+> {%
+  client.test("200 and still one entry", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    const count = response.body.students.filter((x) => x.id === client.global.get("studentId")).length;
+    client.assert(count === 1, `student listed ${count} times`);
+  });
+%}
+
+### Enrolled student sees the course in their list
+# @no-cookie-jar
+GET {{host}}/api/course
+Cookie: qd_session={{studentToken}}
+
+> {%
+  client.test("course listed", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    client.assert(response.body.some((c) => c.id === client.global.get("courseId")), "course missing");
+  });
+%}
+
+### Enrolled student can read the course, without the roster
+# @no-cookie-jar
+GET {{host}}/api/course/{{courseId}}
+Cookie: qd_session={{studentToken}}
+
+> {%
+  client.test("200, no students list", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    client.assert(response.body.students === undefined, "roster leaked to a student");
+    client.assert(response.body.studentCount >= 1, "studentCount missing");
+  });
+%}
+
+### Add the outsider temporarily
+# @no-cookie-jar
+POST {{host}}/api/course/{{courseId}}/student
+Cookie: qd_session={{instructorToken}}
+Content-Type: application/json
+
+{ "students": ["{{outsiderEmail}}"] }
+
+> {%
+  client.test("200 and outsider listed", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    client.assert(response.body.students.some((x) => x.id === client.global.get("outsiderId")), "outsider missing");
+  });
+%}
+
+### Remove a student as student -> 403
+# @no-cookie-jar
+DELETE {{host}}/api/course/{{courseId}}/student/{{outsiderId}}
+Cookie: qd_session={{studentToken}}
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Remove a student as another instructor -> 403
+# @no-cookie-jar
+DELETE {{host}}/api/course/{{courseId}}/student/{{outsiderId}}
+Cookie: qd_session={{otherInstructorToken}}
+
+> {% client.test("403", () => client.assert(response.status === 403, `got ${response.status}`)); %}
+
+### Remove with a malformed student id -> 400
+# @no-cookie-jar
+DELETE {{host}}/api/course/{{courseId}}/student/not-an-id
+Cookie: qd_session={{instructorToken}}
+
+> {% client.test("400", () => client.assert(response.status === 400, `got ${response.status}`)); %}
+
+### Remove from a missing course -> 404
+# @no-cookie-jar
+DELETE {{host}}/api/course/{{missingId}}/student/{{outsiderId}}
+Cookie: qd_session={{instructorToken}}
+
+> {% client.test("404", () => client.assert(response.status === 404, `got ${response.status}`)); %}
+
+### Remove the outsider as owner -> 200
+# @no-cookie-jar
+DELETE {{host}}/api/course/{{courseId}}/student/{{outsiderId}}
+Cookie: qd_session={{instructorToken}}
+
+> {%
+  client.test("200, outsider gone, student kept", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    const ids = response.body.students.map((x) => x.id);
+    client.assert(!ids.includes(client.global.get("outsiderId")), "outsider still enrolled");
+    client.assert(ids.includes(client.global.get("studentId")), "student was removed too");
+  });
+%}
+
+### Removing again is harmless -> 200
+# @no-cookie-jar
+DELETE {{host}}/api/course/{{courseId}}/student/{{outsiderId}}
+Cookie: qd_session={{instructorToken}}
+
+> {% client.test("200", () => client.assert(response.status === 200, `got ${response.status}`)); %}
+
+### Outsider no longer sees the course
+# @no-cookie-jar
+GET {{host}}/api/course
+Cookie: qd_session={{outsiderToken}}
+
+> {%
+  client.test("course not listed", () => {
+    client.assert(response.status === 200, `got ${response.status}`);
+    client.assert(!response.body.some((c) => c.id === client.global.get("courseId")), "outsider still sees the course");
+  });
+%}
